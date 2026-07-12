@@ -44,7 +44,19 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify
+      - run: npm run oidc:verify
       - run: npm run db:migrate
+      - name: Verify generated OpenAPI contract
+        env:
+          OIDC_ISSUER: http://127.0.0.1:8080/realms/niet
+          OIDC_AUDIENCE: niet-erp-api
+          OIDC_JWKS_URI: http://127.0.0.1:8080/realms/niet/protocol/openid-connect/certs
+          OBJECT_STORAGE_ENDPOINT: http://127.0.0.1:9000
+          OBJECT_STORAGE_ACCESS_KEY: ci-storage
+          OBJECT_STORAGE_SECRET_KEY: ci-storage-verification-secret
+          OBJECT_STORAGE_QUARANTINE_BUCKET: niet-erp-quarantine
+          OBJECT_STORAGE_CLEAN_BUCKET: niet-erp-documents
+        run: npm run contract:verify
       - run: npm run db:verify
       - run: npm run access:verify
       - run: npm run workflow:verify

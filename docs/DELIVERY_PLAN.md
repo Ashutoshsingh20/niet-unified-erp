@@ -57,6 +57,8 @@ Unknown NIET rules remain configurable and blocked from production publication u
 - GitHub quality gates reproduce Node 24 build, lint, tests, database migration and platform verifiers, restore proof, audit, and all four deployment-image builds.
 - `npm run platform-slice:verify` correlates one clean document, independently approved request, recipient notification, authorized search result, forbidden search denial, audit trail, and outbox evidence under one request context using real PostgreSQL and OpenSearch.
 - `npm run failure:verify` proves database-loss readiness isolation, continued API liveness, connection recovery, and stateless API process replacement against disposable CI services.
+- `npm run contract:verify` boots the compiled API and validates the generated OpenAPI 3 document for required versioned operations, request schemas, bearer declarations, and absence of unversioned workflow routes.
+- `npm run oidc:verify` serves an ephemeral JWKS and proves signature, issuer, audience, expiry, subject, session, and assurance-level handling, including negative tokens.
 
 ## Subsequent gates
 
