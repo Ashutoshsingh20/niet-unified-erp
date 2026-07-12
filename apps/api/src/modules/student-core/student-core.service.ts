@@ -8,6 +8,8 @@ export interface StudentCoreOverview {
   programmes: readonly { enrolmentId: string; programmeKey: string; programmeTitle: string;
     programmeVersion: number; regulationKey: string; regulationVersion: number;
     status: string; startsOn: string; endsOn: string | null }[];
+  holds: readonly { holdId: string; holdKey: string; effect: string;
+    reason: string; status: string; raisedAt: string }[];
   registrations: readonly { requestId: string; periodTitle: string; offeringId: string;
     offeringTitle: string; courseKey: string }[];
   schedule: readonly { meetingId: string; offeringTitle: string; courseKey: string;
@@ -28,7 +30,7 @@ export class StudentCoreService {
     if (student === undefined) throw new NotFoundException('No canonical student record is linked to this identity');
     if (students.length > 1) throw new NotFoundException('Canonical student identity is ambiguous');
     this.policy.assertScope(actor, student.scope_type, student.scope_id);
-    const [programmes, registrations, schedule, attendance, accounts] = await Promise.all([
+    const [programmes, holds, registrations, schedule, attendance, accounts] = await Promise.all([
       this.dataSource.query<readonly { enrolment_id: string; programme_key: string;
         programme_title: string; programme_version: number; regulation_key: string;
         regulation_version: number; status: string; starts_on: string; ends_on: string | null }[]>(`SELECT
@@ -37,6 +39,9 @@ export class StudentCoreService {
         FROM student.programme_enrolments e JOIN curriculum.programme_versions p ON p.id=e.programme_version_id
         JOIN curriculum.regulation_versions r ON r.id=p.regulation_id WHERE e.student_id=$1
         ORDER BY e.starts_on DESC`, [student.id]),
+      this.dataSource.query<readonly { hold_id: string; hold_key: string; effect: string;
+        reason: string; status: string; raised_at: Date }[]>(`SELECT id hold_id,hold_key,effect,reason,status,raised_at
+        FROM student.holds WHERE student_id=$1 ORDER BY raised_at DESC`, [student.id]),
       this.dataSource.query<readonly { request_id: string; period_title: string; offering_id: string;
         offering_title: string; course_key: string }[]>(`SELECT r.id request_id,p.title period_title,
         o.id offering_id,o.title offering_title,o.course_key FROM registration.requests r
@@ -75,6 +80,9 @@ export class StudentCoreService {
         programmeVersion: row.programme_version, regulationKey: row.regulation_key,
         regulationVersion: row.regulation_version, status: row.status,
         startsOn: row.starts_on, endsOn: row.ends_on })),
+      holds: holds.map((row) => ({ holdId: row.hold_id, holdKey: row.hold_key,
+        effect: row.effect, reason: row.reason, status: row.status,
+        raisedAt: row.raised_at.toISOString() })),
       registrations: registrations.map((row) => ({ requestId: row.request_id, periodTitle: row.period_title,
         offeringId: row.offering_id, offeringTitle: row.offering_title, courseKey: row.course_key })),
       schedule: schedule.map((row) => ({ meetingId: row.meeting_id, offeringTitle: row.offering_title,

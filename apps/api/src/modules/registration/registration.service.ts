@@ -130,6 +130,14 @@ export class RegistrationService {
         || ownership.period_scope_id !== input.scopeId) {
         throw new ConflictException('Registration student, period, and scope are not aligned');
       }
+      if (this.config.get('STUDENT_HOLD_ENFORCEMENT_ENABLED', { infer: true })) {
+        const holds = await manager.query<readonly { blocked: boolean }[]>(`SELECT EXISTS(
+          SELECT 1 FROM student.holds WHERE student_id=$1 AND status='ACTIVE'
+            AND effect='REGISTRATION_SUBMISSION') blocked`, [input.studentId]);
+        if (holds[0]?.blocked === true) {
+          throw new ConflictException('Registration submission is blocked by an active approved student hold');
+        }
+      }
       const offerings = await manager.query<readonly { id: string }[]>(
         `SELECT id FROM registration.offerings WHERE id=ANY($1::uuid[]) AND period_id=$2
          AND status='PUBLISHED' AND scope_type=$3 AND scope_id=$4 ORDER BY id`,

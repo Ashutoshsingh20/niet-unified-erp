@@ -68,6 +68,7 @@ jobs:
       - run: npm run timetable:verify
       - run: npm run student-core:verify
       - run: npm run programmes:verify
+      - run: npm run holds:verify
       - run: npm run access:verify
       - run: npm run workflow:verify
       - run: npm run documents:verify

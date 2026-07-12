@@ -48,6 +48,8 @@ try {
     '/api/v1/student-core/me',
     '/api/v1/programmes/versions/{id}/publication',
     '/api/v1/programmes/enrolments/{id}/activation',
+    '/api/v1/student-holds/{id}/activation',
+    '/api/v1/student-holds/{id}/release',
   ];
   for (const path of required) {
     if (contract.paths?.[path] === undefined) throw new Error(`Required contract path is missing: ${path}`);

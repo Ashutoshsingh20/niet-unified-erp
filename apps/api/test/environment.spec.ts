@@ -42,6 +42,7 @@ describe('validateEnvironment', () => {
       TIMETABLE_PUBLICATION_ENABLED: false,
       STUDENT_CONVERSION_ENABLED: false,
       PROGRAMME_ENROLMENT_ACTIVATION_ENABLED: false,
+      STUDENT_HOLD_ENFORCEMENT_ENABLED: false,
     });
   });
 

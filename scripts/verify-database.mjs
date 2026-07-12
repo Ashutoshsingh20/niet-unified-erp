@@ -54,6 +54,8 @@ try {
     'admissions.conversions',
     'curriculum.programme_versions',
     'student.programme_enrolments',
+    'student.holds',
+    'student.hold_releases',
     'platform.audit_events',
     'platform.outbox_events',
     'workflow.definitions',

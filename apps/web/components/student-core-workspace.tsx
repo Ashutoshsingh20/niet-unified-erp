@@ -7,6 +7,8 @@ interface Overview {
   programmes: { enrolmentId: string; programmeKey: string; programmeTitle: string;
     programmeVersion: number; regulationKey: string; regulationVersion: number;
     status: string; startsOn: string; endsOn: string | null }[];
+  holds: { holdId: string; holdKey: string; effect: string; reason: string;
+    status: string; raisedAt: string }[];
   registrations: { requestId: string; periodTitle: string; offeringId: string;
     offeringTitle: string; courseKey: string }[];
   schedule: { meetingId: string; offeringTitle: string; courseKey: string;
@@ -28,11 +30,17 @@ export function StudentCoreWorkspace(): React.ReactNode {
       <div className="summary"><div className="summary-label">Student</div><div className="summary-value summary-value-small">{data.student.displayName}</div></div>
       <div className="summary"><div className="summary-label">Record status</div><div className="summary-value summary-value-small">{humanize(data.student.status)}</div></div>
       <div className="summary"><div className="summary-label">Confirmed courses</div><div className="summary-value">{data.registrations.length}</div></div>
+      <div className="summary"><div className="summary-label">Active holds</div><div className="summary-value">{data.holds.filter((item) => item.status === 'ACTIVE').length}</div></div>
     </section>
     <section className="panel" aria-labelledby="programme-heading"><div className="panel-header"><h2 id="programme-heading">Programme and curriculum</h2></div>
       <Rows empty="No programme enrolment is assigned." rows={data.programmes.map((item) => ({ id: item.enrolmentId,
         title: `${item.programmeKey} · ${item.programmeTitle}`,
         detail: `Programme v${item.programmeVersion} · ${item.regulationKey} v${item.regulationVersion} · ${humanize(item.status)} · ${item.startsOn}${item.endsOn === null ? ' onward' : ` to ${item.endsOn}`}` }))} /></section>
+    <section className="panel" aria-labelledby="holds-heading"><div className="panel-header"><h2 id="holds-heading">Holds</h2></div>
+      <Rows empty="No hold history." rows={data.holds.map((item) => ({ id: item.holdId,
+        title: `${item.holdKey} · ${humanize(item.status)}`,
+        detail: `${humanize(item.effect)} · ${item.reason} · raised ${new Date(item.raisedAt).toLocaleString()}` }))} />
+      <div className="panel-body"><p className="help">Only explicitly approved active effects are enforced. Balances and attendance never create hidden holds.</p></div></section>
     <div className="two-column">
       <section className="panel" aria-labelledby="schedule-heading"><div className="panel-header"><h2 id="schedule-heading">Published schedule</h2></div>
         <Rows empty="No published meetings for confirmed registrations." rows={data.schedule.map((item) => ({
