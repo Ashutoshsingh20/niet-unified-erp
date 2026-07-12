@@ -24,6 +24,7 @@ try {
     'notifications.preferences',
     'notifications.entries',
     'notifications.push_events',
+    'search.records',
     'platform.audit_events',
     'platform.outbox_events',
     'workflow.definitions',

@@ -58,10 +58,36 @@ services:
         exec node apps/worker/dist/main.js
     environment:
       OUTBOX_EXCHANGE: niet.erp.events
+      OUTBOX_PUBLISHER_ENABLED: "true"
+      SEARCH_PROJECTION_ENABLED: "false"
       OUTBOX_MAX_ATTEMPTS: 20
       OUTBOX_POLL_INTERVAL_MS: 1000
     secrets: [postgres_password, rabbitmq_password]
     depends_on: [postgres, rabbitmq]
+    networks: [application, data]
+    restart: unless-stopped
+
+  search-worker:
+    profiles: [search]
+    image: ${ERP_WORKER_IMAGE:?Set ERP_WORKER_IMAGE to an approved registry image}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        postgres_password="$$(cat /run/secrets/postgres_password)"
+        opensearch_password="$$(cat /run/secrets/opensearch_service_password)"
+        export DATABASE_URL="postgresql://${POSTGRES_USER:-niet_erp}:$${postgres_password}@postgres:5432/${POSTGRES_DB:-niet_erp}"
+        export OPENSEARCH_PASSWORD="$${opensearch_password}"
+        exec node apps/worker/dist/main.js
+    environment:
+      OUTBOX_PUBLISHER_ENABLED: "false"
+      SEARCH_PROJECTION_ENABLED: "true"
+      OPENSEARCH_NODE: https://opensearch:9200
+      OPENSEARCH_USERNAME: ${OPENSEARCH_SERVICE_USER:-niet-erp-search}
+      OPENSEARCH_INDEX: ${OPENSEARCH_INDEX:-niet-erp-search-v1}
+      SEARCH_MAX_ATTEMPTS: 20
+    secrets: [postgres_password, opensearch_service_password]
+    depends_on: [postgres, opensearch]
     networks: [application, data]
     restart: unless-stopped
 
@@ -170,3 +196,5 @@ secrets:
     file: ${SECRETS_DIRECTORY:?Set SECRETS_DIRECTORY}/keycloak_admin_password
   opensearch_admin_password:
     file: ${SECRETS_DIRECTORY:?Set SECRETS_DIRECTORY}/opensearch_admin_password
+  opensearch_service_password:
+    file: ${SECRETS_DIRECTORY:?Set SECRETS_DIRECTORY}/opensearch_service_password

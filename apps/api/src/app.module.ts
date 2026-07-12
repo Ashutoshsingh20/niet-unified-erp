@@ -11,6 +11,8 @@ import { AccessModule } from './modules/access/access.module';
 import { ObjectStorageModule } from './platform/object-storage/object-storage.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { SearchModule } from './modules/search/search.module';
+import { SearchPlatformModule } from './platform/search/search-platform.module';
 
 @Module({
   imports: [
@@ -20,11 +22,13 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     DatabaseModule,
     EvidenceModule,
     ObjectStorageModule,
+    SearchPlatformModule,
     HealthModule,
     WorkflowModule,
     AccessModule,
     DocumentsModule,
     NotificationsModule,
+    SearchModule,
   ],
 })
 export class AppModule {}

@@ -16,6 +16,8 @@ const permissions = [
   'platform.documents.configure',
   'platform.notifications.configure',
   'platform.notifications.send',
+  'platform.search.index',
+  'platform.search.use',
   'platform.workflow.configure',
   'platform.workflow.decide',
   'platform.workflow.publish',

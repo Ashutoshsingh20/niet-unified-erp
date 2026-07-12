@@ -29,3 +29,7 @@ npm run access:bootstrap
 ```
 
 The command takes an advisory lock, refuses to run if access data already exists, and writes an immutable audit event. The bootstrap assignment should be replaced with institution-approved roles after NIET resolves decision D-02.
+
+## OpenSearch identities
+
+The Compose file declares a dedicated search worker identity placeholder. Before enabling the `search` profile, create separate query and indexing service identities through the approved OpenSearch security administration process, install the NIET internal CA in the API and worker images, and write only the service password files referenced by Compose. Do not reuse the OpenSearch administrator account in application configuration.

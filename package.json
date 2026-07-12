@@ -27,6 +27,7 @@
     "object-storage:verify": "node scripts/verify-object-storage.mjs",
     "notifications:verify": "node scripts/verify-notifications.mjs",
     "outbox:verify": "node scripts/verify-outbox.mjs",
+    "search:verify": "node scripts/verify-search.mjs",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",

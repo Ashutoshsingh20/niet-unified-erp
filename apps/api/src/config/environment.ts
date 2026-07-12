@@ -18,6 +18,10 @@ const environmentSchema = z.object({
   OBJECT_STORAGE_SECRET_KEY: z.string().min(16),
   OBJECT_STORAGE_QUARANTINE_BUCKET: z.string().min(3).max(63),
   OBJECT_STORAGE_CLEAN_BUCKET: z.string().min(3).max(63),
+  OPENSEARCH_NODE: z.string().url(),
+  OPENSEARCH_USERNAME: z.string().min(1),
+  OPENSEARCH_PASSWORD: z.string().min(16),
+  OPENSEARCH_INDEX: z.string().regex(/^[a-z0-9][a-z0-9_-]{2,99}$/).default('niet-erp-search-v1'),
 });
 
 export type Environment = z.infer<typeof environmentSchema>;

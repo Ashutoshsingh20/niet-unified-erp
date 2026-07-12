@@ -23,6 +23,7 @@
     "typescript-eslint": "^8.63.0"
   },
   "dependencies": {
+    "@opensearch-project/opensearch": "^3.6.0",
     "amqplib": "^2.0.1",
     "pg": "^8.22.0",
     "zod": "^4.4.3"

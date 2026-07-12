@@ -22,6 +22,7 @@ body { margin: 0; min-width: 320px; }
 button, input, select, textarea { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 a { color: var(--info); }
+.visually-hidden { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .skip-link { position: fixed; left: 12px; top: -60px; z-index: 100; padding: 10px 14px; background: var(--near-black); color: white; }
 .skip-link:focus { top: 12px; }
@@ -45,6 +46,16 @@ a { color: var(--info); }
 .topbar { grid-column: 1 / -1; background: white; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 20px; position: sticky; top: 0; z-index: 20; }
 .topbar .brand-lockup img { width: 104px; }
 .top-actions { display: flex; align-items: center; gap: 8px; }
+.global-search { position: relative; width: min(480px, 42vw); }
+.global-search input { width: 100%; min-height: 40px; border: 1px solid #aaa; border-radius: 4px; padding: 8px 64px 8px 12px; }
+.search-shortcut { position: absolute; right: 9px; top: 10px; color: var(--muted); font-size: 12px; border: 1px solid var(--border); border-radius: 3px; padding: 2px 5px; pointer-events: none; }
+.search-results { position: absolute; z-index: 50; top: 46px; left: 0; right: 0; max-height: min(520px, 70vh); overflow: auto; background: white; border: 1px solid var(--border); box-shadow: 0 12px 28px rgba(0,0,0,.16); }
+.search-results p { margin: 0; padding: 16px; }
+.search-results ul { list-style: none; margin: 0; padding: 0; }
+.search-results li + li { border-top: 1px solid var(--border); }
+.search-results a { display: grid; gap: 4px; padding: 12px 14px; color: var(--charcoal); text-decoration: none; }
+.search-results a:hover { background: var(--surface); }
+.search-results span, .search-results small { color: var(--muted); line-height: 1.35; }
 .sidebar { background: var(--charcoal); color: white; padding: 18px 12px; }
 .sidebar nav { display: grid; gap: 4px; }
 .nav-link { display: flex; align-items: center; min-height: 42px; padding: 9px 12px; border-radius: 4px; color: #ededed; text-decoration: none; font-weight: 600; }
@@ -107,6 +118,7 @@ a { color: var(--info); }
   .content { padding-top: 20px; }
   .summary-grid, .two-column { grid-template-columns: 1fr; }
   .brand-text { display: none; }
+  .global-search { width: min(420px, 52vw); }
 }
 
 @media (max-width: 520px) {
@@ -114,5 +126,7 @@ a { color: var(--info); }
   .auth-panel { padding: 24px 20px; }
   .topbar { padding: 0 12px; }
   .top-actions .button-secondary { padding-inline: 10px; }
+  .global-search { position: fixed; left: 12px; right: 12px; top: 72px; width: auto; }
+  .content { padding-top: 68px; }
   .page-header { display: block; }
 }

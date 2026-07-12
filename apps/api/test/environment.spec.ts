@@ -8,6 +8,9 @@ describe('validateEnvironment', () => {
       OBJECT_STORAGE_SECRET_KEY: 'test-secret-key-value',
       OBJECT_STORAGE_QUARANTINE_BUCKET: 'test-quarantine',
       OBJECT_STORAGE_CLEAN_BUCKET: 'test-clean',
+      OPENSEARCH_NODE: 'https://127.0.0.1:9200',
+      OPENSEARCH_USERNAME: 'test-search-user',
+      OPENSEARCH_PASSWORD: 'test-search-password',
     })).toEqual({
       NODE_ENV: 'development',
       PORT: 3001,
@@ -24,6 +27,10 @@ describe('validateEnvironment', () => {
       OBJECT_STORAGE_SECRET_KEY: 'test-secret-key-value',
       OBJECT_STORAGE_QUARANTINE_BUCKET: 'test-quarantine',
       OBJECT_STORAGE_CLEAN_BUCKET: 'test-clean',
+      OPENSEARCH_NODE: 'https://127.0.0.1:9200',
+      OPENSEARCH_USERNAME: 'test-search-user',
+      OPENSEARCH_PASSWORD: 'test-search-password',
+      OPENSEARCH_INDEX: 'niet-erp-search-v1',
     });
   });
 
@@ -35,6 +42,9 @@ describe('validateEnvironment', () => {
       OBJECT_STORAGE_SECRET_KEY: 'test-secret-key-value',
       OBJECT_STORAGE_QUARANTINE_BUCKET: 'test-quarantine',
       OBJECT_STORAGE_CLEAN_BUCKET: 'test-clean',
+      OPENSEARCH_NODE: 'https://127.0.0.1:9200',
+      OPENSEARCH_USERNAME: 'test-search-user',
+      OPENSEARCH_PASSWORD: 'test-search-password',
     })).toThrow(
       'Invalid environment configuration',
     );
