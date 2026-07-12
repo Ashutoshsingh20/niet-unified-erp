@@ -4,6 +4,9 @@ import { erpRequest } from '@/lib/client-api';
 
 interface Overview {
   student: { id: string; displayName: string; status: string };
+  programmes: { enrolmentId: string; programmeKey: string; programmeTitle: string;
+    programmeVersion: number; regulationKey: string; regulationVersion: number;
+    status: string; startsOn: string; endsOn: string | null }[];
   registrations: { requestId: string; periodTitle: string; offeringId: string;
     offeringTitle: string; courseKey: string }[];
   schedule: { meetingId: string; offeringTitle: string; courseKey: string;
@@ -26,6 +29,10 @@ export function StudentCoreWorkspace(): React.ReactNode {
       <div className="summary"><div className="summary-label">Record status</div><div className="summary-value summary-value-small">{humanize(data.student.status)}</div></div>
       <div className="summary"><div className="summary-label">Confirmed courses</div><div className="summary-value">{data.registrations.length}</div></div>
     </section>
+    <section className="panel" aria-labelledby="programme-heading"><div className="panel-header"><h2 id="programme-heading">Programme and curriculum</h2></div>
+      <Rows empty="No programme enrolment is assigned." rows={data.programmes.map((item) => ({ id: item.enrolmentId,
+        title: `${item.programmeKey} · ${item.programmeTitle}`,
+        detail: `Programme v${item.programmeVersion} · ${item.regulationKey} v${item.regulationVersion} · ${humanize(item.status)} · ${item.startsOn}${item.endsOn === null ? ' onward' : ` to ${item.endsOn}`}` }))} /></section>
     <div className="two-column">
       <section className="panel" aria-labelledby="schedule-heading"><div className="panel-header"><h2 id="schedule-heading">Published schedule</h2></div>
         <Rows empty="No published meetings for confirmed registrations." rows={data.schedule.map((item) => ({

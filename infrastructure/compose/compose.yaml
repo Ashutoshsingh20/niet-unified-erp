@@ -72,6 +72,7 @@ services:
       ADMISSION_DECISION_ENABLED: "false"
       TIMETABLE_PUBLICATION_ENABLED: "false"
       STUDENT_CONVERSION_ENABLED: "false"
+      PROGRAMME_ENROLMENT_ACTIVATION_ENABLED: "false"
     secrets: [postgres_password, object_storage_service_password, opensearch_query_password]
     depends_on:
       migrate:

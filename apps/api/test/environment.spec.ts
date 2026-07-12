@@ -41,6 +41,7 @@ describe('validateEnvironment', () => {
       ADMISSION_DECISION_ENABLED: false,
       TIMETABLE_PUBLICATION_ENABLED: false,
       STUDENT_CONVERSION_ENABLED: false,
+      PROGRAMME_ENROLMENT_ACTIVATION_ENABLED: false,
     });
   });
 

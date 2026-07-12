@@ -52,6 +52,8 @@ try {
     'registration.timetable_meetings',
     'admissions.offers',
     'admissions.conversions',
+    'curriculum.programme_versions',
+    'student.programme_enrolments',
     'platform.audit_events',
     'platform.outbox_events',
     'workflow.definitions',

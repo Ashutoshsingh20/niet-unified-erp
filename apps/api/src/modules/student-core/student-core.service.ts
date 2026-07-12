@@ -5,6 +5,9 @@ import { PolicyService } from '../../platform/auth/policy.service';
 
 export interface StudentCoreOverview {
   student: { id: string; displayName: string; status: string };
+  programmes: readonly { enrolmentId: string; programmeKey: string; programmeTitle: string;
+    programmeVersion: number; regulationKey: string; regulationVersion: number;
+    status: string; startsOn: string; endsOn: string | null }[];
   registrations: readonly { requestId: string; periodTitle: string; offeringId: string;
     offeringTitle: string; courseKey: string }[];
   schedule: readonly { meetingId: string; offeringTitle: string; courseKey: string;
@@ -25,7 +28,15 @@ export class StudentCoreService {
     if (student === undefined) throw new NotFoundException('No canonical student record is linked to this identity');
     if (students.length > 1) throw new NotFoundException('Canonical student identity is ambiguous');
     this.policy.assertScope(actor, student.scope_type, student.scope_id);
-    const [registrations, schedule, attendance, accounts] = await Promise.all([
+    const [programmes, registrations, schedule, attendance, accounts] = await Promise.all([
+      this.dataSource.query<readonly { enrolment_id: string; programme_key: string;
+        programme_title: string; programme_version: number; regulation_key: string;
+        regulation_version: number; status: string; starts_on: string; ends_on: string | null }[]>(`SELECT
+        e.id enrolment_id,p.programme_key,p.title programme_title,p.version programme_version,
+        r.regulation_key,r.version regulation_version,e.status,e.starts_on::text,e.ends_on::text
+        FROM student.programme_enrolments e JOIN curriculum.programme_versions p ON p.id=e.programme_version_id
+        JOIN curriculum.regulation_versions r ON r.id=p.regulation_id WHERE e.student_id=$1
+        ORDER BY e.starts_on DESC`, [student.id]),
       this.dataSource.query<readonly { request_id: string; period_title: string; offering_id: string;
         offering_title: string; course_key: string }[]>(`SELECT r.id request_id,p.title period_title,
         o.id offering_id,o.title offering_title,o.course_key FROM registration.requests r
@@ -59,6 +70,11 @@ export class StudentCoreService {
     ]);
     return {
       student: { id: student.id, displayName: student.display_name, status: student.status },
+      programmes: programmes.map((row) => ({ enrolmentId: row.enrolment_id,
+        programmeKey: row.programme_key, programmeTitle: row.programme_title,
+        programmeVersion: row.programme_version, regulationKey: row.regulation_key,
+        regulationVersion: row.regulation_version, status: row.status,
+        startsOn: row.starts_on, endsOn: row.ends_on })),
       registrations: registrations.map((row) => ({ requestId: row.request_id, periodTitle: row.period_title,
         offeringId: row.offering_id, offeringTitle: row.offering_title, courseKey: row.course_key })),
       schedule: schedule.map((row) => ({ meetingId: row.meeting_id, offeringTitle: row.offering_title,

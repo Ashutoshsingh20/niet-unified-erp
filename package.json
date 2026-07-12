@@ -43,6 +43,7 @@
     "admissions:verify": "node scripts/verify-admissions.mjs",
     "timetable:verify": "node scripts/verify-timetable.mjs",
     "student-core:verify": "node scripts/verify-student-core.mjs",
+    "programmes:verify": "node scripts/verify-programmes.mjs",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
