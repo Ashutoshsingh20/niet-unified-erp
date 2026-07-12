@@ -48,6 +48,8 @@ Unknown NIET rules remain configurable and blocked from production publication u
 - Document security operations are documented in `docs/runbooks/document-security.md`.
 - Notification template publication, optimistic push consent, recipient-only inbox, read state, and opaque-payload structure are exercised by `npm run notifications:verify`.
 - RabbitMQ publisher confirms, persistent event envelopes, PostgreSQL publication state, and retry scheduling are exercised by `npm run outbox:verify`.
+- The web ERP shell provides OIDC/PKCE/nonce sign-in, encrypted HTTP-only BFF sessions, a live role-aware overview, scope-filtered approval inbox, request submission, decision actions, and the notification centre.
+- Automated accessibility checks cover the shell landmark/navigation structure; production build and local sign-in preview are verified without public hosting.
 
 ## Subsequent gates
 

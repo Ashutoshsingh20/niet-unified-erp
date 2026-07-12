@@ -19,5 +19,38 @@ export interface WorkflowTaskRecord {
   readonly prohibit_requester_approval: boolean;
   readonly task_status: 'OPEN' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
   readonly instance_version: number;
+  readonly scope_type: string;
+  readonly scope_id: string;
 }
 
+export interface WorkflowTaskListItem {
+  readonly id: string;
+  readonly instanceId: string;
+  readonly title: string;
+  readonly requesterSubjectId: string;
+  readonly requiredPermission: string;
+  readonly scopeType: string;
+  readonly scopeId: string;
+  readonly createdAt: string;
+  readonly instanceVersion: number;
+}
+
+export interface WorkflowRequestListItem {
+  readonly id: string;
+  readonly definitionKey: string;
+  readonly title: string;
+  readonly status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+  readonly scopeType: string;
+  readonly scopeId: string;
+  readonly submittedAt: string;
+  readonly decidedAt: string | null;
+  readonly decisionReason: string | null;
+  readonly version: number;
+}
+
+export interface WorkflowDefinitionListItem {
+  readonly key: string;
+  readonly version: number;
+  readonly title: string;
+  readonly description: string;
+}

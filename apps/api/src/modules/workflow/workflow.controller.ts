@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiCreatedResponse, ApiNoContentResponse, ApiTags } from '@nestjs/swagger';
 import type { Principal } from '../../platform/auth/auth.types';
 import { CurrentPrincipal } from '../../platform/auth/principal.decorator';
@@ -7,8 +7,14 @@ import {
   CreateWorkflowDefinitionDto,
   DecideWorkflowTaskDto,
   SubmitWorkflowRequestDto,
+  ListWorkflowItemsDto,
 } from './workflow.dto';
 import { WorkflowService } from './workflow.service';
+import type {
+  WorkflowDefinitionListItem,
+  WorkflowRequestListItem,
+  WorkflowTaskListItem,
+} from './workflow.types';
 
 @ApiTags('workflow')
 @ApiBearerAuth()
@@ -47,6 +53,28 @@ export class WorkflowController {
     return this.workflows.submit(input, actor);
   }
 
+  @Get('tasks')
+  @RequirePermission('platform.workflow.decide')
+  listTasks(@CurrentPrincipal() actor: Principal,
+    @Query() query: ListWorkflowItemsDto): Promise<{ items: WorkflowTaskListItem[] }> {
+    return this.workflows.listTasks(actor, query.limit);
+  }
+
+  @Get('requests/mine')
+  @RequirePermission('platform.workflow.submit')
+  listMyRequests(@CurrentPrincipal() actor: Principal,
+    @Query() query: ListWorkflowItemsDto): Promise<{ items: WorkflowRequestListItem[] }> {
+    return this.workflows.listMyRequests(actor, query.limit);
+  }
+
+  @Get('definitions/available')
+  @RequirePermission('platform.workflow.submit')
+  listAvailableDefinitions(@CurrentPrincipal() actor: Principal): Promise<{
+    items: WorkflowDefinitionListItem[];
+  }> {
+    return this.workflows.listAvailableDefinitions(actor);
+  }
+
   @Post('tasks/:id/decision')
   @HttpCode(204)
   @RequirePermission('platform.workflow.decide', { stepUpLevel: 2 })
@@ -59,4 +87,3 @@ export class WorkflowController {
     return this.workflows.decide(id, input, actor);
   }
 }
-

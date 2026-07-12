@@ -156,6 +156,15 @@ export class NotificationsService {
       return { version: result[0].version };
     });
   }
+
+  async getPreferences(actor: Principal): Promise<{ externalPushEnabled: boolean; version: number }> {
+    const rows = await this.dataSource.query<readonly {
+      external_push_enabled: boolean; version: number;
+    }[]>('SELECT external_push_enabled, version FROM notifications.preferences WHERE subject_id = $1',
+      [actor.subjectId]);
+    return rows[0] === undefined ? { externalPushEnabled: false, version: 0 }
+      : { externalPushEnabled: rows[0].external_push_enabled, version: rows[0].version };
+  }
 }
 
 export function renderTextTemplate(template: string, variables: Readonly<Record<string, string>>): string {

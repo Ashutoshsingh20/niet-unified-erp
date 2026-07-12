@@ -10,6 +10,11 @@
     "apps/*",
     "packages/*"
   ],
+  "overrides": {
+    "next": {
+      "postcss": "8.5.10"
+    }
+  },
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "dev:api": "npm run start:dev --workspace @niet/api",

@@ -43,11 +43,28 @@ try {
     prohibitRequesterApproval: true,
   }, approver);
   await workflow.publishDefinition(definition.id, approver);
+  const available = await workflow.listAvailableDefinitions(requester);
+  if (!available.items.some((item) => item.key === definitionKey)) {
+    throw new Error('Available workflow definition list is not permission-aware');
+  }
   const request = await workflow.submit({
     definitionKey,
     title: 'Verify transactional approval',
-    requestData: { verification: true },
+    requestData: { verification: true }, scopeType: 'institution', scopeId: '*',
   }, requester);
+
+  const visibleTasks = await workflow.listTasks(approver, 10);
+  if (visibleTasks.items.length !== 1 || visibleTasks.items[0]?.id !== request.taskId) {
+    throw new Error('Scoped approval inbox did not return the authorized task');
+  }
+  const unauthorizedTasks = await workflow.listTasks({ ...approver, scopes: { organization: ['other'] } }, 10);
+  if (unauthorizedTasks.items.length !== 0) {
+    throw new Error('Approval inbox exposed a task outside the actor scope');
+  }
+  const requesterCases = await workflow.listMyRequests(requester, 10);
+  if (!requesterCases.items.some((item) => item.id === request.id && item.status === 'PENDING')) {
+    throw new Error('Requester case list did not return the submitted workflow');
+  }
 
   let makerCheckerDenied = false;
   try {
@@ -83,4 +100,3 @@ try {
 } finally {
   await dataSource.destroy();
 }
-

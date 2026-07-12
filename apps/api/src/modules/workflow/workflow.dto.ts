@@ -53,6 +53,21 @@ export class SubmitWorkflowRequestDto {
   @IsObject()
   @IsNotEmptyObject()
   requestData!: Record<string, unknown>;
+
+  @Matches(/^[a-z][a-z0-9_.-]{1,49}$/)
+  scopeType!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  scopeId!: string;
+}
+
+export class ListWorkflowItemsDto {
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  limit: number = 50;
 }
 
 export class DecideWorkflowTaskDto {
@@ -69,4 +84,3 @@ export class DecideWorkflowTaskDto {
   @Min(1)
   expectedVersion?: number;
 }
-

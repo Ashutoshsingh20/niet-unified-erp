@@ -61,5 +61,12 @@ export class NotificationsController {
     @CurrentPrincipal() actor: Principal): Promise<{ version: number }> {
     return this.notifications.updatePreferences(input, actor);
   }
-}
 
+  @Get('preferences')
+  @RequirePermission('platform.notifications.preferences')
+  getPreferences(@CurrentPrincipal() actor: Principal): Promise<{
+    externalPushEnabled: boolean; version: number;
+  }> {
+    return this.notifications.getPreferences(actor);
+  }
+}
