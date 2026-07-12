@@ -56,6 +56,7 @@ Unknown NIET rules remain configurable and blocked from production publication u
 - `npm run load:verify` passes a 500-request, concurrency-25 runtime/PostgreSQL smoke baseline with a zero-error and p95 threshold; it is not substituted for the D-11 production capacity workload.
 - GitHub quality gates reproduce Node 24 build, lint, tests, database migration and platform verifiers, restore proof, audit, and all four deployment-image builds.
 - `npm run platform-slice:verify` correlates one clean document, independently approved request, recipient notification, authorized search result, forbidden search denial, audit trail, and outbox evidence under one request context using real PostgreSQL and OpenSearch.
+- `npm run failure:verify` proves database-loss readiness isolation, continued API liveness, connection recovery, and stateless API process replacement against disposable CI services.
 
 ## Subsequent gates
 

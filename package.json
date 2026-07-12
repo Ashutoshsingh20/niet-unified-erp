@@ -31,6 +31,7 @@
     "restore:verify": "node scripts/verify-restore.mjs",
     "load:verify": "node scripts/verify-load.mjs",
     "platform-slice:verify": "node scripts/verify-platform-slice.mjs",
+    "failure:verify": "sh scripts/verify-dependency-failure.sh",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",

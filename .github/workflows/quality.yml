@@ -36,6 +36,17 @@ jobs:
       OPENSEARCH_USERNAME: ci-verifier
       OPENSEARCH_PASSWORD: ci-verification-password
       OPENSEARCH_INDEX: niet-erp-ci-verification
+      NODE_ENV: production
+      HOST: 127.0.0.1
+      PORT: 3001
+      OIDC_ISSUER: http://127.0.0.1:8080/realms/niet
+      OIDC_AUDIENCE: niet-erp-api
+      OIDC_JWKS_URI: http://127.0.0.1:8080/realms/niet/protocol/openid-connect/certs
+      OBJECT_STORAGE_ENDPOINT: http://127.0.0.1:9000
+      OBJECT_STORAGE_ACCESS_KEY: ci-storage
+      OBJECT_STORAGE_SECRET_KEY: ci-storage-verification-secret
+      OBJECT_STORAGE_QUARANTINE_BUCKET: niet-erp-quarantine
+      OBJECT_STORAGE_CLEAN_BUCKET: niet-erp-documents
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
@@ -63,6 +74,14 @@ jobs:
           sudo apt-get install --yes postgresql-client-17
           echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
       - run: npm run restore:verify
+      - name: Verify database and API failure behavior
+        env:
+          FAILURE_DRILL_CONFIRM: DISPOSABLE_TEST_SERVICES
+        run: |
+          POSTGRES_CONTAINER_ID="$(docker ps --filter ancestor=postgres:17.6-bookworm --format '{{.ID}}')"
+          test -n "$POSTGRES_CONTAINER_ID"
+          export POSTGRES_CONTAINER_ID
+          npm run failure:verify
       - run: npm audit --audit-level=moderate
 
   container-build:
