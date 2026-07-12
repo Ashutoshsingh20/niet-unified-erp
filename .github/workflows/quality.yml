@@ -113,3 +113,25 @@ jobs:
           for target in api web worker migrate; do
             docker build --file infrastructure/container/Containerfile --target "$target" --tag "niet-erp-$target:ci" .
           done
+
+  mobile-android-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.13.1
+          cache: npm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - run: npm ci
+      - name: Build Student Android debug application
+        working-directory: apps/student-mobile/android
+        run: ./gradlew assembleDebug --no-daemon
+      - name: Build Staff Android debug application
+        working-directory: apps/staff-mobile/android
+        run: ./gradlew assembleDebug --no-daemon
