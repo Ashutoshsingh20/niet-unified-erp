@@ -14,5 +14,17 @@ export class PolicyService {
       throw new ForbiddenException('Step-up authentication is required');
     }
   }
-}
 
+  assertScope(principal: Principal, scopeType: string, scopeId: string): void {
+    const institutionScopes = principal.scopes.institution ?? [];
+    const scopedValues = principal.scopes[scopeType] ?? [];
+    if (
+      institutionScopes.includes('*')
+      || scopedValues.includes('*')
+      || scopedValues.includes(scopeId)
+    ) {
+      return;
+    }
+    throw new ForbiddenException('The requested resource is outside the permitted scope');
+  }
+}

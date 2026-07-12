@@ -30,5 +30,21 @@ describe('PolicyService', () => {
       stepUpLevel: 2,
     })).not.toThrow();
   });
-});
 
+  it('denies access outside the granted resource scope', () => {
+    const scoped: Principal = {
+      ...principal(['student.read']),
+      scopes: { organization: ['unit-1'] },
+    };
+    expect(() => policy.assertScope(scoped, 'organization', 'unit-2'))
+      .toThrow('outside the permitted scope');
+  });
+
+  it('allows institution-wide wildcard scope', () => {
+    const scoped: Principal = {
+      ...principal(['student.read']),
+      scopes: { institution: ['*'] },
+    };
+    expect(() => policy.assertScope(scoped, 'organization', 'unit-2')).not.toThrow();
+  });
+});

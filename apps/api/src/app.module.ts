@@ -6,6 +6,8 @@ import { RequestContextModule } from './platform/request-context/request-context
 import { AuthModule } from './platform/auth/auth.module';
 import { DatabaseModule } from './platform/database/database.module';
 import { WorkflowModule } from './modules/workflow/workflow.module';
+import { EvidenceModule } from './platform/evidence/evidence.module';
+import { AccessModule } from './modules/access/access.module';
 
 @Module({
   imports: [
@@ -13,8 +15,10 @@ import { WorkflowModule } from './modules/workflow/workflow.module';
     RequestContextModule,
     AuthModule,
     DatabaseModule,
+    EvidenceModule,
     HealthModule,
     WorkflowModule,
+    AccessModule,
   ],
 })
 export class AppModule {}

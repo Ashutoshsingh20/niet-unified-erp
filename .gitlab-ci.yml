@@ -28,3 +28,6 @@ migration:
     - npm run db:migrate
     - npm run db:migrate
     - npm run db:verify
+    - npm run build --workspace @niet/api
+    - npm run access:verify
+    - npm run workflow:verify

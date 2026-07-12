@@ -18,3 +18,14 @@ The Compose networks are internal by default and publish no ports. A separately 
 
 Do not report this stack as production-ready until NIET has selected approved images, completed capacity tests, configured HA nodes and certificates, exercised backup restoration, and verified monitoring and incident runbooks.
 
+## Initial access bootstrap
+
+After Keycloak is configured and the database migrations have run, one named security administrator may establish the first technical access-governance role:
+
+```bash
+DATABASE_URL='postgresql://...' \
+BOOTSTRAP_SUBJECT_ID='keycloak-subject-id' \
+npm run access:bootstrap
+```
+
+The command takes an advisory lock, refuses to run if access data already exists, and writes an immutable audit event. The bootstrap assignment should be replaced with institution-approved roles after NIET resolves decision D-02.

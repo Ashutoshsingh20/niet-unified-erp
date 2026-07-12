@@ -36,7 +36,14 @@ Unknown NIET rules remain configurable and blocked from production publication u
 - [ ] Migration, negative authorization, API contract, accessibility, load, and restore tests.
 - [ ] End-to-end approval vertical slice and operational runbook.
 
+### Verified implementation evidence
+
+- PostgreSQL migrations are checksum-protected and idempotent on a fresh database.
+- Immutable audit mutation rejection is exercised by `npm run db:verify`.
+- Effective role, descendant organization scope, bounded delegation, source-revocation, and access-review revocation are exercised by `npm run access:verify`.
+- Workflow publication, maker/checker denial, approval, optimistic versioning, audit, and outbox coupling are exercised by `npm run workflow:verify`.
+- Access operating procedures are documented in `docs/runbooks/access-governance.md`.
+
 ## Subsequent gates
 
 Phases 2–7 follow the scope and gates defined in the architecture document. Each domain receives its own specification before implementation and may not bypass unresolved policy decisions with assumed rules.
-

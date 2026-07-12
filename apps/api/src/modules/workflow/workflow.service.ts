@@ -5,10 +5,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { DataSource, type EntityManager } from 'typeorm';
+import { DataSource } from 'typeorm';
 import type { Principal } from '../../platform/auth/auth.types';
 import { PolicyService } from '../../platform/auth/policy.service';
-import { RequestContextService } from '../../platform/request-context/request-context.service';
+import { TransactionalEvidenceService } from '../../platform/evidence/transactional-evidence.service';
 import type {
   CreateWorkflowDefinitionDto,
   DecideWorkflowTaskDto,
@@ -21,7 +21,7 @@ export class WorkflowService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly policy: PolicyService,
-    private readonly requestContext: RequestContextService,
+    private readonly evidence: TransactionalEvidenceService,
   ) {}
 
   async createDefinition(input: CreateWorkflowDefinitionDto, actor: Principal): Promise<{ id: string }> {
@@ -36,9 +36,12 @@ export class WorkflowService {
           input.submitPermission, input.approvalPermission, input.prohibitRequesterApproval,
           actor.subjectId],
       );
-      await this.recordAudit(manager, actor, 'workflow.definition.created', 'workflow-definition', id, {
-        definitionKey: input.definitionKey,
-        version: input.version,
+      await this.evidence.audit(manager, {
+        actorSubjectId: actor.subjectId,
+        action: 'workflow.definition.created',
+        resourceType: 'workflow-definition',
+        resourceId: id,
+        details: { definitionKey: input.definitionKey, version: input.version },
       });
     });
     return { id };
@@ -47,21 +50,29 @@ export class WorkflowService {
   async publishDefinition(id: string, actor: Principal): Promise<void> {
     await this.dataSource.transaction(async (manager) => {
       const result = await manager.query<readonly { readonly definition_key: string }[]>(
-        `UPDATE workflow.definitions
-         SET status = 'PUBLISHED', published_by = $2, published_at = clock_timestamp()
-         WHERE id = $1 AND status = 'DRAFT'
-         RETURNING definition_key`,
+        `WITH published AS (
+           UPDATE workflow.definitions
+           SET status = 'PUBLISHED', published_by = $2, published_at = clock_timestamp()
+           WHERE id = $1 AND status = 'DRAFT'
+           RETURNING definition_key
+         ) SELECT definition_key FROM published`,
         [id, actor.subjectId],
       );
       if (result.length !== 1) {
         throw new ConflictException('Only an existing draft definition can be published');
       }
-      await this.recordAudit(manager, actor, 'workflow.definition.published', 'workflow-definition', id, {
-        definitionKey: result[0]?.definition_key,
+      await this.evidence.audit(manager, {
+        actorSubjectId: actor.subjectId,
+        action: 'workflow.definition.published',
+        resourceType: 'workflow-definition',
+        resourceId: id,
+        details: { definitionKey: result[0]?.definition_key },
       });
-      await this.recordOutbox(manager, 'WorkflowDefinitionPublished', 'workflow-definition', id, {
-        definitionId: id,
-        definitionKey: result[0]?.definition_key,
+      await this.evidence.outbox(manager, {
+        eventType: 'WorkflowDefinitionPublished',
+        aggregateType: 'workflow-definition',
+        aggregateId: id,
+        payload: { definitionId: id, definitionKey: result[0]?.definition_key },
       });
     });
   }
@@ -96,15 +107,19 @@ export class WorkflowService {
          VALUES ($1, $2, $3, 'OPEN')`,
         [taskId, id, definition.approval_permission],
       );
-      await this.recordAudit(manager, actor, 'workflow.request.submitted', 'workflow-instance', id, {
-        definitionKey: definition.definition_key,
-        definitionVersion: definition.version,
-        taskId,
+      await this.evidence.audit(manager, {
+        actorSubjectId: actor.subjectId,
+        action: 'workflow.request.submitted',
+        resourceType: 'workflow-instance',
+        resourceId: id,
+        details: { definitionKey: definition.definition_key,
+          definitionVersion: definition.version, taskId },
       });
-      await this.recordOutbox(manager, 'WorkflowRequestSubmitted', 'workflow-instance', id, {
-        instanceId: id,
-        taskId,
-        requiredPermission: definition.approval_permission,
+      await this.evidence.outbox(manager, {
+        eventType: 'WorkflowRequestSubmitted',
+        aggregateType: 'workflow-instance',
+        aggregateId: id,
+        payload: { instanceId: id, taskId, requiredPermission: definition.approval_permission },
       });
       return { id, taskId };
     });
@@ -148,45 +163,20 @@ export class WorkflowService {
          WHERE id = $1`,
         [task.instance_id, input.decision, actor.subjectId, input.reason],
       );
-      await this.recordAudit(manager, actor, `workflow.request.${input.decision.toLowerCase()}`,
-        'workflow-instance', task.instance_id, { taskId, reason: input.reason });
-      await this.recordOutbox(manager, `WorkflowRequest${titleCase(input.decision)}`,
-        'workflow-instance', task.instance_id, { instanceId: task.instance_id, taskId });
+      await this.evidence.audit(manager, {
+        actorSubjectId: actor.subjectId,
+        action: `workflow.request.${input.decision.toLowerCase()}`,
+        resourceType: 'workflow-instance',
+        resourceId: task.instance_id,
+        details: { taskId, reason: input.reason },
+      });
+      await this.evidence.outbox(manager, {
+        eventType: `WorkflowRequest${titleCase(input.decision)}`,
+        aggregateType: 'workflow-instance',
+        aggregateId: task.instance_id,
+        payload: { instanceId: task.instance_id, taskId },
+      });
     });
-  }
-
-  private async recordAudit(
-    manager: EntityManager,
-    actor: Principal,
-    action: string,
-    resourceType: string,
-    resourceId: string,
-    details: Readonly<Record<string, unknown>>,
-  ): Promise<void> {
-    await manager.query(
-      `INSERT INTO platform.audit_events
-        (id, actor_subject_id, action, resource_type, resource_id, outcome, correlation_id, details)
-       VALUES ($1, $2, $3, $4, $5, 'SUCCEEDED', $6, $7::jsonb)`,
-      [randomUUID(), actor.subjectId, action, resourceType, resourceId,
-        this.requestContext.getCorrelationId() ?? 'internal', JSON.stringify(details)],
-    );
-  }
-
-  private async recordOutbox(
-    manager: EntityManager,
-    eventType: string,
-    aggregateType: string,
-    aggregateId: string,
-    payload: Readonly<Record<string, unknown>>,
-  ): Promise<void> {
-    await manager.query(
-      `INSERT INTO platform.outbox_events
-        (id, event_type, event_version, aggregate_type, aggregate_id, correlation_id,
-         classification, payload)
-       VALUES ($1, $2, 1, $3, $4, $5, 'INTERNAL', $6::jsonb)`,
-      [randomUUID(), eventType, aggregateType, aggregateId,
-        this.requestContext.getCorrelationId() ?? 'internal', JSON.stringify(payload)],
-    );
   }
 }
 
