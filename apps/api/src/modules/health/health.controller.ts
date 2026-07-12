@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Public } from '../../platform/auth/public.decorator';
 
 interface HealthResponse {
   readonly status: 'ok';
@@ -8,6 +9,7 @@ interface HealthResponse {
 }
 
 @ApiTags('platform')
+@Public()
 @Controller({ path: 'health', version: '1' })
 export class HealthController {
   @Get('live')
@@ -21,4 +23,3 @@ export class HealthController {
     };
   }
 }
-

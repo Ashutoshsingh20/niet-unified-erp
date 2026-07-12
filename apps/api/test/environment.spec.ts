@@ -8,6 +8,10 @@ describe('validateEnvironment', () => {
       HOST: '127.0.0.1',
       LOG_LEVEL: 'info',
       TRUST_PROXY: false,
+      DATABASE_URL: 'postgresql://niet_erp:niet_erp_dev@127.0.0.1:5432/niet_erp',
+      OIDC_ISSUER: 'http://127.0.0.1:8080/realms/niet',
+      OIDC_AUDIENCE: 'niet-erp-api',
+      OIDC_JWKS_URI: 'http://127.0.0.1:8080/realms/niet/protocol/openid-connect/certs',
     });
   });
 
@@ -17,4 +21,3 @@ describe('validateEnvironment', () => {
     );
   });
 });
-

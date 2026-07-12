@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { RequestContextService } from './request-context.service';
+import type { RequestContextService } from './request-context.service';
 
 const CORRELATION_HEADER = 'x-correlation-id';
 const SAFE_CORRELATION_ID = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -16,4 +16,3 @@ export function createRequestContextHook(context: RequestContextService) {
     context.run({ correlationId }, done);
   };
 }
-

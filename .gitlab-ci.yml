@@ -1,0 +1,30 @@
+stages: [quality, migration]
+
+default:
+  image: node:24-bookworm
+  cache:
+    key:
+      files: [package-lock.json]
+    paths: [.npm/]
+  before_script:
+    - npm ci --cache .npm --prefer-offline
+
+quality:
+  stage: quality
+  script:
+    - npm run verify
+
+migration:
+  stage: migration
+  services:
+    - name: postgres:17-alpine
+      alias: postgres
+  variables:
+    POSTGRES_DB: niet_erp_test
+    POSTGRES_USER: niet_erp
+    POSTGRES_PASSWORD: migration_test_only
+    DATABASE_URL: postgresql://niet_erp:migration_test_only@postgres:5432/niet_erp_test
+  script:
+    - npm run db:migrate
+    - npm run db:migrate
+    - npm run db:verify
