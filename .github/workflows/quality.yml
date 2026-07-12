@@ -60,6 +60,7 @@ jobs:
       - run: npm run db:verify
       - run: npm run students:verify
       - run: npm run curriculum:verify
+      - run: npm run registration:verify
       - run: npm run access:verify
       - run: npm run workflow:verify
       - run: npm run documents:verify

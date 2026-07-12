@@ -16,6 +16,7 @@ import { SearchPlatformModule } from './platform/search/search-platform.module';
 import { ObservabilityModule } from './platform/observability/observability.module';
 import { StudentsModule } from './modules/students/students.module';
 import { CurriculumModule } from './modules/curriculum/curriculum.module';
+import { RegistrationModule } from './modules/registration/registration.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { CurriculumModule } from './modules/curriculum/curriculum.module';
     SearchModule,
     StudentsModule,
     CurriculumModule,
+    RegistrationModule,
   ],
 })
 export class AppModule {}
