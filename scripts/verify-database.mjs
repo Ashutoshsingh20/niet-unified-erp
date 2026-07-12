@@ -49,6 +49,7 @@ try {
     'admissions.applications',
     'admissions.submissions',
     'admissions.decisions',
+    'registration.timetable_meetings',
     'platform.audit_events',
     'platform.outbox_events',
     'workflow.definitions',

@@ -65,6 +65,7 @@ jobs:
       - run: npm run finance:verify
       - run: npm run migration:verify
       - run: npm run admissions:verify
+      - run: npm run timetable:verify
       - run: npm run access:verify
       - run: npm run workflow:verify
       - run: npm run documents:verify
