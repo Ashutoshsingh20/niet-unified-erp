@@ -70,3 +70,4 @@ Phase 2 implementation is governed by [PHASE_2_STUDENT_CORE_SPEC.md](phases/PHAS
 
 - The canonical student foundation creates only `PROVISIONAL` records, preserves immutable source provenance, enforces exact-retry idempotency, records append-only status history, couples audit/outbox evidence transactionally, and denies reads outside scope through `npm run students:verify`.
 - Restricted alternate identifiers have no plaintext column: storage requires encrypted bytes plus a non-reversible lookup fingerprint. Identifier authority, matching, student-number format, and account-link policy remain blocked by D-01 rather than hardcoded.
+- The curriculum regulation registry stores immutable versioned rule documents, requires scope and optimistic publication state, emits audit/outbox evidence, and defaults production publication off through `ACADEMIC_POLICY_PUBLICATION_ENABLED=false`; `npm run curriculum:verify` publishes only an explicitly empty synthetic preview.

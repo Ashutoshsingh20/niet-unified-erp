@@ -31,6 +31,7 @@ describe('validateEnvironment', () => {
       OPENSEARCH_USERNAME: 'test-search-user',
       OPENSEARCH_PASSWORD: 'test-search-password',
       OPENSEARCH_INDEX: 'niet-erp-search-v1',
+      ACADEMIC_POLICY_PUBLICATION_ENABLED: false,
     });
   });
 

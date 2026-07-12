@@ -29,6 +29,7 @@ try {
     'student.status_history',
     'student.identifiers',
     'student.identity_match_exceptions',
+    'curriculum.regulation_versions',
     'platform.audit_events',
     'platform.outbox_events',
     'workflow.definitions',

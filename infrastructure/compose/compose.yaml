@@ -62,6 +62,7 @@ services:
       OPENSEARCH_NODE: https://opensearch:9200
       OPENSEARCH_USERNAME: ${OPENSEARCH_QUERY_USER:-niet-erp-query}
       OPENSEARCH_INDEX: ${OPENSEARCH_INDEX:-niet-erp-search-v1}
+      ACADEMIC_POLICY_PUBLICATION_ENABLED: "false"
     secrets: [postgres_password, object_storage_service_password, opensearch_query_password]
     depends_on:
       migrate:

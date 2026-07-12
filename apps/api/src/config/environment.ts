@@ -22,6 +22,8 @@ const environmentSchema = z.object({
   OPENSEARCH_USERNAME: z.string().min(1),
   OPENSEARCH_PASSWORD: z.string().min(16),
   OPENSEARCH_INDEX: z.string().regex(/^[a-z0-9][a-z0-9_-]{2,99}$/).default('niet-erp-search-v1'),
+  ACADEMIC_POLICY_PUBLICATION_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
 });
 
 export type Environment = z.infer<typeof environmentSchema>;
