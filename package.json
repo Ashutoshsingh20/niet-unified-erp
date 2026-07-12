@@ -37,6 +37,7 @@
     "students:verify": "node scripts/verify-students.mjs",
     "curriculum:verify": "node scripts/verify-curriculum.mjs",
     "registration:verify": "node scripts/verify-registration.mjs",
+    "attendance:verify": "node scripts/verify-attendance.mjs",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",

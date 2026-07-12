@@ -33,6 +33,8 @@ describe('validateEnvironment', () => {
       OPENSEARCH_INDEX: 'niet-erp-search-v1',
       ACADEMIC_POLICY_PUBLICATION_ENABLED: false,
       REGISTRATION_DECISION_ENABLED: false,
+      ATTENDANCE_FINALIZATION_ENABLED: false,
+      ATTENDANCE_CORRECTION_ENABLED: false,
     });
   });
 

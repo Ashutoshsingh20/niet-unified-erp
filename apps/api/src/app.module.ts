@@ -17,6 +17,7 @@ import { ObservabilityModule } from './platform/observability/observability.modu
 import { StudentsModule } from './modules/students/students.module';
 import { CurriculumModule } from './modules/curriculum/curriculum.module';
 import { RegistrationModule } from './modules/registration/registration.module';
+import { AttendanceModule } from './modules/attendance/attendance.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { RegistrationModule } from './modules/registration/registration.module';
     StudentsModule,
     CurriculumModule,
     RegistrationModule,
+    AttendanceModule,
   ],
 })
 export class AppModule {}
