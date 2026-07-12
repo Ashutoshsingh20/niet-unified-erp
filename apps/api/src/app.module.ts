@@ -22,6 +22,7 @@ import { FinanceModule } from './modules/finance/finance.module';
 import { MigrationModule } from './modules/migration/migration.module';
 import { AdmissionsModule } from './modules/admissions/admissions.module';
 import { TimetableModule } from './modules/timetable/timetable.module';
+import { StudentCoreModule } from './modules/student-core/student-core.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { TimetableModule } from './modules/timetable/timetable.module';
     MigrationModule,
     AdmissionsModule,
     TimetableModule,
+    StudentCoreModule,
   ],
 })
 export class AppModule {}

@@ -8,6 +8,7 @@ import { GlobalSearch } from './global-search';
 
 const links = [
   { href: '/', label: 'Overview' },
+  { href: '/student-core', label: 'My student record' },
   { href: '/workflows', label: 'Tasks & approvals' },
   { href: '/notifications', label: 'Notifications' },
 ] as const;
@@ -27,7 +28,7 @@ export function AppShell({ children }: Readonly<{ children: ReactNode }>): React
       </div>
     </header>
     <aside className="sidebar" aria-label="Primary navigation"><nav>{links.map((link) =>
-      <Link className="nav-link" href={link.href} key={link.href}
+      <Link className="nav-link" href={{ pathname: link.href }} key={link.href}
         aria-current={pathname === link.href ? 'page' : undefined}>{link.label}</Link>)}</nav></aside>
     <main className="content" id="main-content">{children}</main>
   </div>;
