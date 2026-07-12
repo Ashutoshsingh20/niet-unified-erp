@@ -46,6 +46,8 @@ Unknown NIET rules remain configurable and blocked from production publication u
 - Document quarantine, scanner-computed integrity, MIME enforcement, promotion, signed download, audit, and outbox behavior are exercised by `npm run documents:verify`.
 - Presigned upload, MinIO metadata, bucket promotion, and signed download are exercised against a real local MinIO service by `npm run object-storage:verify`.
 - Document security operations are documented in `docs/runbooks/document-security.md`.
+- Notification template publication, optimistic push consent, recipient-only inbox, read state, and opaque-payload structure are exercised by `npm run notifications:verify`.
+- RabbitMQ publisher confirms, persistent event envelopes, PostgreSQL publication state, and retry scheduling are exercised by `npm run outbox:verify`.
 
 ## Subsequent gates
 

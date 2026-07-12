@@ -14,6 +14,8 @@ const permissions = [
   'platform.access.review.override',
   'platform.organization.manage',
   'platform.documents.configure',
+  'platform.notifications.configure',
+  'platform.notifications.send',
   'platform.workflow.configure',
   'platform.workflow.decide',
   'platform.workflow.publish',

@@ -20,6 +20,8 @@
     "workflow:verify": "node scripts/verify-workflow.mjs",
     "documents:verify": "node scripts/verify-documents.mjs",
     "object-storage:verify": "node scripts/verify-object-storage.mjs",
+    "notifications:verify": "node scripts/verify-notifications.mjs",
+    "outbox:verify": "node scripts/verify-outbox.mjs",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",

@@ -20,6 +20,10 @@ try {
     'organization.units',
     'documents.types',
     'documents.records',
+    'notifications.templates',
+    'notifications.preferences',
+    'notifications.entries',
+    'notifications.push_events',
     'platform.audit_events',
     'platform.outbox_events',
     'workflow.definitions',
@@ -32,6 +36,13 @@ try {
       throw new Error(`Required table ${table} is missing`);
     }
   }
+
+  const outboxColumns = await client.query(
+    `SELECT column_name FROM information_schema.columns
+     WHERE table_schema = 'platform' AND table_name = 'outbox_events'
+       AND column_name IN ('next_attempt_at', 'failed_at')`,
+  );
+  if (outboxColumns.rowCount !== 2) throw new Error('Outbox retry columns are missing');
 
   const auditId = randomUUID();
   await client.query('BEGIN');

@@ -45,6 +45,27 @@ services:
     networks: [data, management]
     restart: unless-stopped
 
+  outbox-worker:
+    image: ${ERP_WORKER_IMAGE:?Set ERP_WORKER_IMAGE to an approved registry image}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        postgres_password="$$(cat /run/secrets/postgres_password)"
+        rabbitmq_password="$$(cat /run/secrets/rabbitmq_password)"
+        export DATABASE_URL="postgresql://${POSTGRES_USER:-niet_erp}:$${postgres_password}@postgres:5432/${POSTGRES_DB:-niet_erp}"
+        export AMQP_URL="amqp://${RABBITMQ_USER:-niet_erp}:$${rabbitmq_password}@rabbitmq:5672"
+        exec node apps/worker/dist/main.js
+    environment:
+      OUTBOX_EXCHANGE: niet.erp.events
+      OUTBOX_MAX_ATTEMPTS: 20
+      OUTBOX_POLL_INTERVAL_MS: 1000
+    secrets: [postgres_password, rabbitmq_password]
+    depends_on: [postgres, rabbitmq]
+    networks: [application, data]
+    restart: unless-stopped
+
+
   minio:
     image: ${MINIO_IMAGE:?Set MINIO_IMAGE to an approved registry image}
     command: server /data --console-address :9001

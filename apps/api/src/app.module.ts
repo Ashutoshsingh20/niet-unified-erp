@@ -10,6 +10,7 @@ import { EvidenceModule } from './platform/evidence/evidence.module';
 import { AccessModule } from './modules/access/access.module';
 import { ObjectStorageModule } from './platform/object-storage/object-storage.module';
 import { DocumentsModule } from './modules/documents/documents.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { DocumentsModule } from './modules/documents/documents.module';
     WorkflowModule,
     AccessModule,
     DocumentsModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {}

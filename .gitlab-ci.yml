@@ -32,3 +32,4 @@ migration:
     - npm run access:verify
     - npm run workflow:verify
     - npm run documents:verify
+    - npm run notifications:verify
