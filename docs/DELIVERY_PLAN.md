@@ -63,3 +63,10 @@ Unknown NIET rules remain configurable and blocked from production publication u
 ## Subsequent gates
 
 Phases 2–7 follow the scope and gates defined in the architecture document. Each domain receives its own specification before implementation and may not bypass unresolved policy decisions with assumed rules.
+
+Phase 2 implementation is governed by [PHASE_2_STUDENT_CORE_SPEC.md](phases/PHASE_2_STUDENT_CORE_SPEC.md). The specification keeps D-01/D-02/D-05/D-06/D-07/D-11-dependent rules unpublished while permitting synthetic, versioned foundations and verification work.
+
+### Phase 2 implementation evidence
+
+- The canonical student foundation creates only `PROVISIONAL` records, preserves immutable source provenance, enforces exact-retry idempotency, records append-only status history, couples audit/outbox evidence transactionally, and denies reads outside scope through `npm run students:verify`.
+- Restricted alternate identifiers have no plaintext column: storage requires encrypted bytes plus a non-reversible lookup fingerprint. Identifier authority, matching, student-number format, and account-link policy remain blocked by D-01 rather than hardcoded.

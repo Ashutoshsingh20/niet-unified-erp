@@ -34,6 +34,7 @@
     "failure:verify": "sh scripts/verify-dependency-failure.sh",
     "contract:verify": "node scripts/verify-api-contract.mjs",
     "oidc:verify": "node scripts/verify-oidc.mjs",
+    "students:verify": "node scripts/verify-students.mjs",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",

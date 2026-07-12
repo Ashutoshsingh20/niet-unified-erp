@@ -58,6 +58,7 @@ jobs:
           OBJECT_STORAGE_CLEAN_BUCKET: niet-erp-documents
         run: npm run contract:verify
       - run: npm run db:verify
+      - run: npm run students:verify
       - run: npm run access:verify
       - run: npm run workflow:verify
       - run: npm run documents:verify

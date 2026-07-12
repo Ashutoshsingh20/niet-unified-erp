@@ -14,6 +14,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { SearchModule } from './modules/search/search.module';
 import { SearchPlatformModule } from './platform/search/search-platform.module';
 import { ObservabilityModule } from './platform/observability/observability.module';
+import { StudentsModule } from './modules/students/students.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { ObservabilityModule } from './platform/observability/observability.modu
     DocumentsModule,
     NotificationsModule,
     SearchModule,
+    StudentsModule,
   ],
 })
 export class AppModule {}

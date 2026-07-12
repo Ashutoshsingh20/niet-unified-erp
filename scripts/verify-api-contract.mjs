@@ -31,6 +31,7 @@ try {
     '/api/v1/documents/uploads',
     '/api/v1/notifications',
     '/api/v1/search',
+    '/api/v1/students/{id}',
   ];
   for (const path of required) {
     if (contract.paths?.[path] === undefined) throw new Error(`Required contract path is missing: ${path}`);
