@@ -1,0 +1,22 @@
+{
+  "name": "niet-unified-erp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "On-premise NIET Unified ERP platform",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev:api": "npm run start:dev --workspace @niet/api",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "verify": "npm run typecheck && npm test && npm run build"
+  }
+}
+
