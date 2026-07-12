@@ -66,6 +66,8 @@ services:
       REGISTRATION_DECISION_ENABLED: "false"
       ATTENDANCE_FINALIZATION_ENABLED: "false"
       ATTENDANCE_CORRECTION_ENABLED: "false"
+      FINANCE_POSTING_ENABLED: "false"
+      FINANCE_REVERSAL_ENABLED: "false"
     secrets: [postgres_password, object_storage_service_password, opensearch_query_password]
     depends_on:
       migrate:

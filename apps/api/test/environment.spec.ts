@@ -35,6 +35,8 @@ describe('validateEnvironment', () => {
       REGISTRATION_DECISION_ENABLED: false,
       ATTENDANCE_FINALIZATION_ENABLED: false,
       ATTENDANCE_CORRECTION_ENABLED: false,
+      FINANCE_POSTING_ENABLED: false,
+      FINANCE_REVERSAL_ENABLED: false,
     });
   });
 

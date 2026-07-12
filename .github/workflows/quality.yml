@@ -62,6 +62,7 @@ jobs:
       - run: npm run curriculum:verify
       - run: npm run registration:verify
       - run: npm run attendance:verify
+      - run: npm run finance:verify
       - run: npm run access:verify
       - run: npm run workflow:verify
       - run: npm run documents:verify

@@ -30,6 +30,10 @@ const environmentSchema = z.object({
     .transform((value) => value === 'true'),
   ATTENDANCE_CORRECTION_ENABLED: z.enum(['true', 'false']).default('false')
     .transform((value) => value === 'true'),
+  FINANCE_POSTING_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
+  FINANCE_REVERSAL_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
 });
 
 export type Environment = z.infer<typeof environmentSchema>;
