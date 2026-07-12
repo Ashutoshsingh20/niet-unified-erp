@@ -39,6 +39,7 @@
     "registration:verify": "node scripts/verify-registration.mjs",
     "attendance:verify": "node scripts/verify-attendance.mjs",
     "finance:verify": "node scripts/verify-finance.mjs",
+    "migration:verify": "node scripts/verify-migration.mjs",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
