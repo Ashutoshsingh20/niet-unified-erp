@@ -7,13 +7,14 @@ import type { Principal } from '../../platform/auth/auth.types';
 import { PolicyService } from '../../platform/auth/policy.service';
 import { TransactionalEvidenceService } from '../../platform/evidence/transactional-evidence.service';
 import type { CreateAcademicPeriodDto, CreateOfferingDto, DecideRegistrationDto,
-  PublishAcademicPeriodDto, PublishOfferingDto, SubmitRegistrationDto } from './registration.dto';
+  PromoteWaitlistDto, PublishAcademicPeriodDto, PublishOfferingDto, SubmitRegistrationDto,
+  WithdrawRegistrationDto } from './registration.dto';
 
 interface PeriodRow { id: string; status: string; record_version: number; scope_type: string; scope_id: string }
 interface OfferingRow { id: string; period_id: string; status: string; record_version: number;
   scope_type: string; scope_id: string; capacity: number }
 interface RequestRow { id: string; student_id: string; period_id: string; scope_type: string;
-  scope_id: string; status: string; version: number }
+  scope_id: string; status: string; version: number; submitted_by: string; decided_by: string | null }
 
 @Injectable()
 export class RegistrationService {
@@ -195,11 +196,97 @@ export class RegistrationService {
          evaluation_trace,reason,decided_by) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)`,
       [randomUUID(), id, input.outcome, input.regulationId, input.evaluationEngine,
         input.evaluationVersion, JSON.stringify(input.evaluationTrace), input.reason, actor.subjectId]);
+      if (input.outcome === 'WAITLISTED') {
+        await manager.query(`INSERT INTO registration.waitlist_entries
+          (id,request_id,offering_id,student_id)
+          SELECT gen_random_uuid(),i.request_id,i.offering_id,$2 FROM registration.request_items i
+          WHERE i.request_id=$1`, [id, request.student_id]);
+      }
       await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
         action: 'registration.request.decided', resourceType: 'registration-request', resourceId: id,
         details: { outcome: input.outcome, regulationId: input.regulationId,
           evaluationEngine: input.evaluationEngine, evaluationVersion: input.evaluationVersion } });
       await this.evidence.outbox(manager, { eventType: `Registration${titleCase(input.outcome)}`,
+        aggregateType: 'registration-request', aggregateId: id, classification: 'CONFIDENTIAL',
+        payload: { registrationRequestId: id, studentId: request.student_id } });
+    });
+  }
+
+  async promote(id: string, input: PromoteWaitlistDto, actor: Principal): Promise<void> {
+    if (!this.config.get('WAITLIST_PROMOTION_ENABLED', { infer: true })) {
+      throw new ForbiddenException('Waitlist promotion is disabled pending NIET policy approval');
+    }
+    await this.dataSource.transaction(async (manager) => {
+      const requests = await manager.query<readonly RequestRow[]>(
+        'SELECT * FROM registration.requests WHERE id=$1 FOR UPDATE', [id]);
+      const request = requests[0];
+      if (request === undefined) throw new NotFoundException('Registration request not found');
+      this.policy.assertScope(actor, request.scope_type, request.scope_id);
+      if (request.decided_by === actor.subjectId) {
+        throw new ForbiddenException('Original waitlist decision maker cannot promote the request');
+      }
+      if (request.status !== 'WAITLISTED' || request.version !== input.expectedVersion) {
+        throw new ConflictException('Registration request is not the expected waitlisted version');
+      }
+      await this.assertCapacity(manager, id);
+      const target = await manager.query<readonly { id: string; offering_id: string }[]>(
+        `SELECT id,offering_id FROM registration.waitlist_entries
+         WHERE request_id=$1 AND status='WAITING' ORDER BY offering_id FOR UPDATE`, [id]);
+      const all = await manager.query<readonly { id: string; offering_id: string }[]>(
+        `SELECT id,offering_id FROM registration.waitlist_entries
+         WHERE offering_id=ANY($1::uuid[]) AND status='WAITING'
+         ORDER BY offering_id,created_at,id FOR UPDATE`, [target.map((row) => row.offering_id)]);
+      const heads = new Map<string, string>();
+      for (const row of all) if (!heads.has(row.offering_id)) heads.set(row.offering_id, row.id);
+      if (target.length === 0 || target.some((row) => heads.get(row.offering_id) !== row.id)) {
+        throw new ConflictException('Registration request is not first in every offering waitlist');
+      }
+      await manager.query(`INSERT INTO registration.waitlist_promotions
+        (id,request_id,evaluation_engine,evaluation_version,evaluation_trace,reason,promoted_by)
+        VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7)`, [randomUUID(), id, input.evaluationEngine,
+        input.evaluationVersion, JSON.stringify(input.evaluationTrace), input.reason, actor.subjectId]);
+      await manager.query(`UPDATE registration.waitlist_entries SET status='PROMOTED',
+        promoted_by=$2,promoted_at=clock_timestamp() WHERE request_id=$1 AND status='WAITING'`,
+      [id, actor.subjectId]);
+      await manager.query(`UPDATE registration.requests SET status='CONFIRMED',version=version+1,
+        decision_reason=$2 WHERE id=$1`, [id, input.reason]);
+      await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
+        action: 'registration.waitlist.promoted', resourceType: 'registration-request', resourceId: id,
+        details: { evaluationEngine: input.evaluationEngine, evaluationVersion: input.evaluationVersion } });
+      await this.evidence.outbox(manager, { eventType: 'RegistrationWaitlistPromoted',
+        aggregateType: 'registration-request', aggregateId: id, classification: 'CONFIDENTIAL',
+        payload: { registrationRequestId: id, studentId: request.student_id } });
+    });
+  }
+
+  async withdraw(id: string, input: WithdrawRegistrationDto, actor: Principal): Promise<void> {
+    if (!this.config.get('REGISTRATION_WITHDRAWAL_ENABLED', { infer: true })) {
+      throw new ForbiddenException('Registration withdrawal is disabled pending NIET policy approval');
+    }
+    await this.dataSource.transaction(async (manager) => {
+      const requests = await manager.query<readonly RequestRow[]>(
+        'SELECT * FROM registration.requests WHERE id=$1 FOR UPDATE', [id]);
+      const request = requests[0];
+      if (request === undefined) throw new NotFoundException('Registration request not found');
+      this.policy.assertScope(actor, request.scope_type, request.scope_id);
+      if (request.submitted_by !== actor.subjectId) {
+        throw new ForbiddenException('Only the original requester can withdraw this registration');
+      }
+      if (!['CONFIRMED', 'WAITLISTED'].includes(request.status) || request.version !== input.expectedVersion) {
+        throw new ConflictException('Registration request is not an expected withdrawable version');
+      }
+      await manager.query(`INSERT INTO registration.withdrawals
+        (id,request_id,from_status,reason,withdrawn_by) VALUES ($1,$2,$3,$4,$5)`,
+      [randomUUID(), id, request.status, input.reason, actor.subjectId]);
+      if (request.status === 'WAITLISTED') {
+        await manager.query(`UPDATE registration.waitlist_entries SET status='REMOVED'
+          WHERE request_id=$1 AND status='WAITING'`, [id]);
+      }
+      await manager.query(`UPDATE registration.requests SET status='CANCELLED',version=version+1,
+        decision_reason=$2 WHERE id=$1`, [id, input.reason]);
+      await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
+        action: 'registration.request.withdrawn', resourceType: 'registration-request', resourceId: id });
+      await this.evidence.outbox(manager, { eventType: 'RegistrationWithdrawn',
         aggregateType: 'registration-request', aggregateId: id, classification: 'CONFIDENTIAL',
         payload: { registrationRequestId: id, studentId: request.student_id } });
     });

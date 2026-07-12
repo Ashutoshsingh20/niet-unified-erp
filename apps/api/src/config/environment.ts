@@ -46,6 +46,10 @@ const environmentSchema = z.object({
     .transform((value) => value === 'true'),
   STUDENT_HOLD_ENFORCEMENT_ENABLED: z.enum(['true', 'false']).default('false')
     .transform((value) => value === 'true'),
+  WAITLIST_PROMOTION_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
+  REGISTRATION_WITHDRAWAL_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
 });
 
 export type Environment = z.infer<typeof environmentSchema>;

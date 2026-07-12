@@ -50,3 +50,14 @@ export class DecideRegistrationDto {
   @IsString() @MinLength(3) @MaxLength(1000) reason!: string;
   @IsInt() @Min(1) expectedVersion!: number;
 }
+export class PromoteWaitlistDto {
+  @Matches(/^[a-zA-Z0-9_.-]{2,100}$/) evaluationEngine!: string;
+  @Matches(/^[a-zA-Z0-9_.-]{1,100}$/) evaluationVersion!: string;
+  @IsObject() evaluationTrace!: Record<string, unknown>;
+  @IsString() @MinLength(3) @MaxLength(1000) reason!: string;
+  @IsInt() @Min(1) expectedVersion!: number;
+}
+export class WithdrawRegistrationDto {
+  @IsString() @MinLength(3) @MaxLength(1000) reason!: string;
+  @IsInt() @Min(1) expectedVersion!: number;
+}

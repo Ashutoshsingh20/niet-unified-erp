@@ -43,6 +43,8 @@ describe('validateEnvironment', () => {
       STUDENT_CONVERSION_ENABLED: false,
       PROGRAMME_ENROLMENT_ACTIVATION_ENABLED: false,
       STUDENT_HOLD_ENFORCEMENT_ENABLED: false,
+      WAITLIST_PROMOTION_ENABLED: false,
+      REGISTRATION_WITHDRAWAL_ENABLED: false,
     });
   });
 

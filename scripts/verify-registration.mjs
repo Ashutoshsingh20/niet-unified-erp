@@ -28,6 +28,7 @@ try {
   const students = new StudentsService(dataSource, policy, evidence);
   const owner = { subjectId: `registration-owner-${suffix}`, assuranceLevel: 2,
     permissions: new Set(), scopes: { organization: [scopeId] } };
+  const promoter = { ...owner, subjectId: `registration-promoter-${suffix}` };
   const studentInput = (number) => ({ idempotencyKey: randomUUID(),
     subjectId: `registration-student-${suffix}-${number}`, displayName: `Synthetic Student ${number}`,
     scopeType: 'organization', scopeId, sourceSystem: 'synthetic-admissions',
@@ -83,6 +84,34 @@ try {
   try { await registration.decide(second.id, decision, owner); }
   catch (error) { capacityRejected = error instanceof ConflictException; }
   if (!capacityRejected) throw new Error('Offering capacity was exceeded');
+  await registration.decide(second.id, { ...decision, outcome: 'WAITLISTED',
+    reason: 'Synthetic capacity waitlist' }, owner);
+  let promotionDisabled = false;
+  try { await disabled.promote(second.id, { evaluationEngine: 'synthetic-promoter',
+    evaluationVersion: 'v1', evaluationTrace: { result: 'SYNTHETIC_QUEUE_HEAD' },
+    reason: 'Synthetic promotion', expectedVersion: 2 }, promoter); }
+  catch (error) { promotionDisabled = error instanceof ForbiddenException; }
+  if (!promotionDisabled) throw new Error('Waitlist promotion bypassed disabled gate');
+  let fullPromotionRejected = false;
+  try { await registration.promote(second.id, { evaluationEngine: 'synthetic-promoter',
+    evaluationVersion: 'v1', evaluationTrace: { result: 'SYNTHETIC_QUEUE_HEAD' },
+    reason: 'Synthetic promotion', expectedVersion: 2 }, promoter); }
+  catch (error) { fullPromotionRejected = error instanceof ConflictException; }
+  if (!fullPromotionRejected) throw new Error('Waitlist promotion exceeded offering capacity');
+  let withdrawalDisabled = false;
+  try { await disabled.withdraw(first.id, { reason: 'Synthetic seat release', expectedVersion: 2 }, owner); }
+  catch (error) { withdrawalDisabled = error instanceof ForbiddenException; }
+  if (!withdrawalDisabled) throw new Error('Registration withdrawal bypassed disabled gate');
+  await registration.withdraw(first.id, { reason: 'Synthetic seat release', expectedVersion: 2 }, owner);
+  let promotionMakerChecker = false;
+  try { await registration.promote(second.id, { evaluationEngine: 'synthetic-promoter',
+    evaluationVersion: 'v1', evaluationTrace: { result: 'SYNTHETIC_QUEUE_HEAD' },
+    reason: 'Synthetic promotion', expectedVersion: 2 }, owner); }
+  catch (error) { promotionMakerChecker = error instanceof ForbiddenException; }
+  if (!promotionMakerChecker) throw new Error('Waitlist decision maker promoted own request');
+  await registration.promote(second.id, { evaluationEngine: 'synthetic-promoter',
+    evaluationVersion: 'v1', evaluationTrace: { result: 'SYNTHETIC_QUEUE_HEAD' },
+    reason: 'Synthetic promotion', expectedVersion: 2 }, promoter);
   const concurrentOffering = await registration.createOffering({ periodId: period.id,
     offeringKey: `RACE-${suffix}`, courseKey: `RACE-COURSE-${suffix}`,
     title: 'Synthetic concurrent capacity-one section', capacity: 1,
@@ -113,11 +142,20 @@ try {
       AND aggregate_id=r.id::text AND event_type='RegistrationConfirmed' LIMIT 1) payload
     FROM registration.requests r JOIN registration.decisions d ON d.request_id=r.id WHERE r.id=$1`, [first.id]);
   const proof = proofRows[0];
-  if (proof?.status !== 'CONFIRMED' || proof?.version !== 2 || proof?.audits !== 2
+  if (proof?.status !== 'CANCELLED' || proof?.version !== 3 || proof?.audits !== 3
     || proof?.evaluation_engine !== 'synthetic-evaluator' || proof?.regulation_id !== regulation.id
     || JSON.stringify(Object.keys(proof?.payload ?? {}).sort())
       !== JSON.stringify(['registrationRequestId', 'studentId'])) {
     throw new Error('Registration decision or minimum-data evidence is incomplete');
   }
-  process.stdout.write('Registration gates, idempotency, evaluator evidence, concurrent capacity, audit, and outbox verified\n');
+  const waitlistRows = await dataSource.query(`SELECT r.status,r.version,w.status waitlist_status,
+    p.evaluation_engine,(SELECT count(*)::int FROM platform.audit_events
+      WHERE resource_type='registration-request' AND resource_id=r.id::text) audits
+    FROM registration.requests r JOIN registration.waitlist_entries w ON w.request_id=r.id
+    JOIN registration.waitlist_promotions p ON p.request_id=r.id WHERE r.id=$1`, [second.id]);
+  const waitlist = waitlistRows[0];
+  if (waitlist?.status !== 'CONFIRMED' || waitlist?.version !== 3
+    || waitlist?.waitlist_status !== 'PROMOTED' || waitlist?.evaluation_engine !== 'synthetic-promoter'
+    || waitlist?.audits !== 3) throw new Error('Waitlist promotion evidence is incomplete');
+  process.stdout.write('Registration gates, idempotency, evaluator evidence, serialized capacity, FIFO waitlist promotion, withdrawal seat release, maker-checker, audit, and outbox verified\n');
 } finally { await dataSource.destroy(); }

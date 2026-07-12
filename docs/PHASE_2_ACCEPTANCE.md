@@ -1,0 +1,49 @@
+# Phase 2 student core acceptance audit
+
+Audit date: 2026-07-13  
+Scope: [Phase 2 student core specification](phases/PHASE_2_STUDENT_CORE_SPEC.md) and the Phase 2 requirements in the original NIET brief.
+
+## Outcome
+
+**Phase 2 is not complete and is not approved for production.** The repository proves a strong synthetic preview foundation, but it does not yet satisfy the full workflow, screen, integration, reporting, migration, operational-volume, and institutional-policy acceptance gate. The feature gates in `.env.example` and the deployment compose file must remain off.
+
+This audit does not treat schemas, screens, or passing narrow tests as module completion. “Verified” below means a repository-owned verifier exercises the stated behavior against real PostgreSQL or the compiled runtime. “Partial” means evidence covers only the named subset. “Missing” means no authoritative implementation evidence exists.
+
+## Requirement evidence matrix
+
+| Specification area | Status | Current authoritative evidence | Missing completion evidence |
+|---|---|---|---|
+| Actors and scope | Partial | Database-owned RBAC/ABAC, descendant scope, delegation, access review, self-only `student-core/me`; `access:verify`, `students:verify`, `student-core:verify`. | D-02 role/scope ownership, guardian consent D-04, assigned adviser/programme scopes, negative authorization for every Phase 2 endpoint and role. |
+| Unresolved decisions | Blocked by NIET | D-01/D-02/D-05/D-06/D-07/D-11 remain Open in `docs/DELIVERY_PLAN.md`; all dependent gates default off. | Named owners must approve canonical identity, academic/admission/fee rules, segregation, and representative SLO volumes. |
+| Canonical student identity | Verified foundation | Exact source/idempotency replay, immutable provenance/status history, restricted identifier encryption boundary, atomic admission conversion; `students:verify`, `admissions:verify`. | Approved identifier authorities, duplicate resolution operations, identity exception worklist, guardian/contact/consent, alumni conversion. |
+| Admissions | Partial | Encrypted draft, applicant-owned submission, evaluator-versioned offer decision, immutable terms manifest, applicant acceptance, atomic conversion; `admissions:verify`. | Enquiry/campaign, document checklist linkage, verification worklist, test/interview/counselling, merit/seat matrix, offer expiry/withdrawal, cancellation/refund, scholarship, hostel/transport preference, communications and funnel reporting. |
+| Curriculum and programme | Partial | Immutable regulation and programme versions, structure hashes, publication gates, effective-dated non-overlapping enrolment, maker-checker activation; `curriculum:verify`, `programmes:verify`. | Course catalogue/requirements, prerequisite/co-requisite/minimum-grade evaluator, baskets/equivalence/transfer/RPL/MOOC/ABC/AP-AAR mappings, explainable degree audit and what-if graduation planning. |
+| Registration | Partial | Published periods/offerings, idempotent request, evaluator evidence, serialized capacity, explicit holds, durable per-offering FIFO waitlist, maker-checker promotion and applicant withdrawal/seat release; `registration:verify`, `holds:verify`. | Registration windows, reserved seats, adviser approval, credit limits, timetable conflict check at request time, add/drop period policy, override workflow and timed automatic seat release. |
+| Timetable | Partial | Published recurring meetings, PostgreSQL room/instructor/offering overlap exclusion, immutable schedule, schedule event; `timetable:verify`. | Faculty/room source registries, dated exceptions, substitute/reschedule/cancel workflow, room capacity/lab constraints, optimization and utilization reporting. |
+| Attendance | Partial | Confirmed-roster observations, complete finalization, canonical evidence hash, append-only maker-checker correction; `attendance:verify`. | Biometric/QR adapters and anti-proxy evidence, lesson/session plans, short-attendance rules/alerts, consent-controlled parent notification, course-file/LMS/attainment functions. |
+| Student holds | Verified foundation | Explicit policy/evidence records, maker-checker activation, opt-in registration effect, append-only release, student visibility; `holds:verify`. | Approved hold catalogue/effects, expiry/escalation, financial/document source adapters, staff worklist and notifications. |
+| Student subledger | Partial | Integer minor units, ISO currency, balanced double entry, idempotent demand/payment, immutable exact-inverse maker-checker reversal, derived balance; `finance:verify`. | Approved fee structures/installments/category/scholarship/tax policy, provider/counter receipts, unique signed provider events, reconciliation, waivers/penalties/refunds/caution money, receipt documents and ageing reports. |
+| API contracts | Partial | Versioned validated NestJS endpoints and compiled OpenAPI bearer checks; `contract:verify`. | Pagination/read contracts for all worklists, endpoint-level error schemas, compatibility/version deprecation tests, complete public contract review. |
+| Audit and outbox | Verified foundation | Transactional audit/outbox on implemented commands, immutable PostgreSQL evidence, minimum-data event assertions in domain verifiers. | Approved retention/legal hold D-03, event consumer reconciliation for all Phase 2 events, privileged-action alert rules and production SIEM operations. |
+| Notifications | Partial | In-app inbox, opaque external push envelope, preferences and outbox delivery; `notifications:verify`, `outbox:verify`. | Phase 2 event-to-template projections, consent-aware parent routes, approved D-10 provider/push posture, delivery failure worklists. |
+| Search | Partial | Permission-filtered OpenSearch projection with source re-authorization and degraded operation; `search:verify`. | Phase 2 student/programme/course/transaction projectors, restricted-field test corpus, production indexing/rebuild volume evidence. |
+| Web experience | Partial | OIDC BFF shell, tasks, notifications, search, live student profile/programme/registration/schedule/attendance/holds/account page; web tests/build. | Applicant and all staff worklists/forms, registration and correction actions, finance receipts, reports, exhaustive loading/empty/error/stale/denied states, browser E2E and full WCAG 2.2 AA audit. |
+| Native mobile | Partial | Separate React Native CLI Student/Staff Android+iOS projects, role-specific no-fake-data shells, type/lint/render tests, clean Android APK builds. | OIDC/device binding/biometric unlock, encrypted offline cache, live API journeys, navigation/deep links, Android/iOS device tests, accessibility/performance, NIET signing and store distribution. |
+| Reporting and certified metrics | Missing | Generic observability metrics and operational PostgreSQL queries only. | Phase 2 reporting projection/warehouse, certified definitions/lineage/owners/approval, funnel/capacity/completeness/ageing/reconciliation reports and export permissions. |
+| External integrations | Missing/blocked | Adapter boundaries and fail-closed configuration are documented; object storage, OpenSearch, OIDC and RabbitMQ platform adapters are tested. | Approved admissions, biometric, banking/payment, email/SMS/push, government and legacy providers; signature/replay/quarantine/rate-limit/reconciliation tests. |
+| Failure, recovery and performance | Partial | Platform dependency failure, process replacement, logical restore, 500-request readiness smoke, container builds. | Phase 2 domain workload/soak/spike at approved D-11 volumes, payment/provider timeout recovery, domain-level restore reconciliation, node-failure no-loss proof and measured LAN/mobile targets. |
+| Migration wave one | Partial, not applied | Encrypted staging, source hashes, exact control totals, maker-checker approval, immutable evidence, fail-closed missing adapter; `migration:verify`. | Source inventory/mappings/owners, approved domain adapters, masked trial data, exception resolution, control-total sign-off, UAT, dual run, cutover/rollback and legacy archive. |
+| Integrated journey | Partial | `student-core:verify` covers synthetic admission conversion → registration → published schedule → finalized attendance → derived fee balance plus negative self/scope access. | Documents, notifications, search, programme assignment, holds, recovery, accessibility, representative load and migration reconciliation must be correlated in the same accepted journey. |
+
+## Immediate implementation backlog
+
+1. Registration exception closure: registration/add-drop windows, reserved seats, adviser approval, credit-limit and timetable checks, override evidence, and timed automatic waitlist expiry/seat release.
+2. Finance exception lifecycle: provider event deduplication/reconciliation, receipts, refund request/approval/posting, and document evidence.
+3. Admissions operational lifecycle: document checklist/verification, seat decision evidence, offer expiry/withdrawal, cancellation/refund and conversion exception worklist.
+4. Curriculum evaluation: versioned course requirements and explainable prerequisite/degree-audit snapshots.
+5. Phase 2 event projections: notifications, permission-aware search, certified operational reporting and integrated recovery reconciliation.
+6. Complete applicant/student/staff web actions and live mobile identity/read journeys with E2E/accessibility/device evidence.
+
+## Exit rule
+
+Phase 2 may be marked complete only when every row above is Verified or is an explicitly approved external acceptance item with retained sign-off evidence. Production activation additionally requires D-01/D-02/D-05/D-06/D-07/D-11 approval, representative masked-volume results, reconciled migration totals, restore evidence, and business/data-steward acceptance. Until then, the current implementation is an unpublished preview foundation.

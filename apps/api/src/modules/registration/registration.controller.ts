@@ -5,6 +5,7 @@ import { CurrentPrincipal } from '../../platform/auth/principal.decorator';
 import { RequirePermission } from '../../platform/auth/require-permission.decorator';
 import { CreateAcademicPeriodDto, CreateOfferingDto, DecideRegistrationDto,
   PublishAcademicPeriodDto, PublishOfferingDto, SubmitRegistrationDto } from './registration.dto';
+import { PromoteWaitlistDto, WithdrawRegistrationDto } from './registration.dto';
 import { RegistrationService } from './registration.service';
 
 @ApiTags('registration')
@@ -59,4 +60,12 @@ export class RegistrationController {
     @CurrentPrincipal() actor: Principal): Promise<void> {
     return this.registration.decide(id, input, actor);
   }
+  @Post('requests/:id/waitlist-promotion') @HttpCode(204)
+  @RequirePermission('registration.waitlist.promote', { stepUpLevel: 2 })
+  promote(@Param('id', ParseUUIDPipe) id: string, @Body() input: PromoteWaitlistDto,
+    @CurrentPrincipal() actor: Principal): Promise<void> { return this.registration.promote(id, input, actor); }
+  @Post('requests/:id/withdrawal') @HttpCode(204)
+  @RequirePermission('registration.request.withdraw')
+  withdraw(@Param('id', ParseUUIDPipe) id: string, @Body() input: WithdrawRegistrationDto,
+    @CurrentPrincipal() actor: Principal): Promise<void> { return this.registration.withdraw(id, input, actor); }
 }
