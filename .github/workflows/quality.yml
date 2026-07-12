@@ -28,6 +28,7 @@ jobs:
         env:
           discovery.type: single-node
           plugins.security.disabled: "true"
+          DISABLE_SECURITY_PLUGIN: "true"
           OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
         ports: ["9200:9200"]
     env:
@@ -37,8 +38,8 @@ jobs:
       OPENSEARCH_PASSWORD: ci-verification-password
       OPENSEARCH_INDEX: niet-erp-ci-verification
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: 24.13.1
           cache: npm
@@ -51,7 +52,7 @@ jobs:
       - run: npm run documents:verify
       - run: npm run notifications:verify
       - name: Wait for OpenSearch
-        run: for attempt in {1..60}; do curl --fail --silent http://127.0.0.1:9200 >/dev/null && exit 0; sleep 2; done; exit 1
+        run: for attempt in {1..60}; do curl --max-time 2 --fail --silent http://127.0.0.1:9200 >/dev/null && exit 0; sleep 2; done; exit 1
       - run: npm run search:verify
       - run: npm run platform-slice:verify
       - run: npm run restore:verify
@@ -61,8 +62,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
       - name: Build deployment images
         run: |
           for target in api web worker migrate; do
