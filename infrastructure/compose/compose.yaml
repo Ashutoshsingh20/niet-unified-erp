@@ -10,12 +10,106 @@ services:
     secrets: [postgres_password]
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ../postgres/init-databases.sh:/docker-entrypoint-initdb.d/10-create-databases.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 10
     networks: [data]
+    restart: unless-stopped
+
+  migrate:
+    image: ${ERP_MIGRATE_IMAGE:?Set ERP_MIGRATE_IMAGE to an approved registry image}
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        password="$$(cat /run/secrets/postgres_password)"
+        export DATABASE_URL="postgresql://${POSTGRES_USER:-niet_erp}:$${password}@postgres:5432/${POSTGRES_DB:-niet_erp}"
+        exec node scripts/migrate.mjs
+    secrets: [postgres_password]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [data]
+    restart: "no"
+
+  api:
+    image: ${ERP_API_IMAGE:?Set ERP_API_IMAGE to an approved registry image}
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        postgres_password="$$(cat /run/secrets/postgres_password)"
+        object_password="$$(cat /run/secrets/object_storage_service_password)"
+        search_password="$$(cat /run/secrets/opensearch_query_password)"
+        export DATABASE_URL="postgresql://${POSTGRES_USER:-niet_erp}:$${postgres_password}@postgres:5432/${POSTGRES_DB:-niet_erp}"
+        export OBJECT_STORAGE_SECRET_KEY="$${object_password}"
+        export OPENSEARCH_PASSWORD="$${search_password}"
+        exec node apps/api/dist/main.js
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3001
+      TRUST_PROXY: "true"
+      OIDC_ISSUER: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN}/identity/realms/niet
+      OIDC_AUDIENCE: niet-erp-api
+      OIDC_JWKS_URI: http://keycloak:8080/identity/realms/niet/protocol/openid-connect/certs
+      OBJECT_STORAGE_ENDPOINT: http://minio:9000
+      OBJECT_STORAGE_REGION: ${OBJECT_STORAGE_REGION:-us-east-1}
+      OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_SERVICE_USER:-niet-erp-documents}
+      OBJECT_STORAGE_QUARANTINE_BUCKET: niet-erp-quarantine
+      OBJECT_STORAGE_CLEAN_BUCKET: niet-erp-documents
+      OPENSEARCH_NODE: https://opensearch:9200
+      OPENSEARCH_USERNAME: ${OPENSEARCH_QUERY_USER:-niet-erp-query}
+      OPENSEARCH_INDEX: ${OPENSEARCH_INDEX:-niet-erp-search-v1}
+    secrets: [postgres_password, object_storage_service_password, opensearch_query_password]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_started
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3001/api/v1/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [application, data]
+    restart: unless-stopped
+
+  web:
+    image: ${ERP_WEB_IMAGE:?Set ERP_WEB_IMAGE to an approved registry image}
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        export OIDC_CLIENT_SECRET="$$(cat /run/secrets/oidc_client_secret)"
+        export SESSION_ENCRYPTION_KEY="$$(cat /run/secrets/session_encryption_key)"
+        exec node apps/web/server.js
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+      NIET_API_BASE_URL: http://api:3001/api
+      WEB_ORIGIN: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN}
+      OIDC_ISSUER: ${PUBLIC_ORIGIN}/identity/realms/niet
+      OIDC_CLIENT_ID: niet-erp-web
+      OIDC_REDIRECT_URI: ${PUBLIC_ORIGIN}/auth/callback
+    secrets: [oidc_client_secret, session_encryption_key]
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [application]
+    restart: unless-stopped
+
+  gateway:
+    image: ${NGINX_IMAGE:?Set NGINX_IMAGE to an approved registry image}
+    ports: ["${HTTPS_PORT:-8443}:8443"]
+    volumes:
+      - ../gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+    secrets: [tls_certificate, tls_private_key]
+    depends_on: [web, keycloak]
+    networks: [application, management]
     restart: unless-stopped
 
   redis:
@@ -112,26 +206,34 @@ services:
       - -ec
       - |
         password="$$(cat /run/secrets/minio_password)"
+        service_password="$$(cat /run/secrets/object_storage_service_password)"
         until mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${password}"; do sleep 2; done
-        mc mb --ignore-existing local/${OBJECT_STORAGE_QUARANTINE_BUCKET:-niet-erp-quarantine}
-        mc mb --ignore-existing local/${OBJECT_STORAGE_CLEAN_BUCKET:-niet-erp-documents}
+        mc mb --ignore-existing local/niet-erp-quarantine
+        mc mb --ignore-existing local/niet-erp-documents
+        mc admin user add local "$${OBJECT_STORAGE_SERVICE_USER}" "$${service_password}" || true
+        mc admin policy create local niet-erp-documents /config/document-service-policy.json
+        mc admin policy attach local niet-erp-documents --user "$${OBJECT_STORAGE_SERVICE_USER}"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-niet_erp_minio}
-    secrets: [minio_password]
+      OBJECT_STORAGE_SERVICE_USER: ${OBJECT_STORAGE_SERVICE_USER:-niet-erp-documents}
+    secrets: [minio_password, object_storage_service_password]
+    volumes:
+      - ../minio/document-service-policy.json:/config/document-service-policy.json:ro
     networks: [data]
     restart: "no"
 
   keycloak:
     image: ${KEYCLOAK_IMAGE:?Set KEYCLOAK_IMAGE to an approved registry image}
-    command: ["start", "--optimized", "--http-enabled=true", "--hostname-strict=false"]
+    command: ["start", "--optimized", "--http-enabled=true", "--hostname-strict=true", "--http-relative-path=/identity"]
     environment:
       KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-niet_erp}
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${KEYCLOAK_DB:-niet_keycloak}
       KC_DB_USERNAME: ${POSTGRES_USER:-niet_erp}
       KC_DB_PASSWORD_FILE: /run/secrets/postgres_password
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:-bootstrap-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD_FILE: /run/secrets/keycloak_admin_password
       KC_PROXY_HEADERS: xforwarded
+      KC_HOSTNAME: ${PUBLIC_ORIGIN:?Set PUBLIC_ORIGIN}
       KC_HEALTH_ENABLED: "true"
     secrets: [postgres_password, keycloak_admin_password]
     depends_on:
@@ -198,3 +300,15 @@ secrets:
     file: ${SECRETS_DIRECTORY:?Set SECRETS_DIRECTORY}/opensearch_admin_password
   opensearch_service_password:
     file: ${SECRETS_DIRECTORY:?Set SECRETS_DIRECTORY}/opensearch_service_password
+  opensearch_query_password:
+    file: ${SECRETS_DIRECTORY:?Set SECRETS_DIRECTORY}/opensearch_query_password
+  object_storage_service_password:
+    file: ${SECRETS_DIRECTORY:?Set SECRETS_DIRECTORY}/object_storage_service_password
+  oidc_client_secret:
+    file: ${SECRETS_DIRECTORY:?Set SECRETS_DIRECTORY}/oidc_client_secret
+  session_encryption_key:
+    file: ${SECRETS_DIRECTORY:?Set SECRETS_DIRECTORY}/session_encryption_key
+  tls_certificate:
+    file: ${SECRETS_DIRECTORY:?Set SECRETS_DIRECTORY}/tls_certificate.pem
+  tls_private_key:
+    file: ${SECRETS_DIRECTORY:?Set SECRETS_DIRECTORY}/tls_private_key.pem

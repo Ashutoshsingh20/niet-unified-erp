@@ -6,6 +6,8 @@ COPY apps/worker/package.json apps/worker/package.json
 COPY apps/web/package.json apps/web/package.json
 RUN npm ci
 COPY apps ./apps
+COPY scripts ./scripts
+COPY db ./db
 RUN npm run build
 RUN npm prune --omit=dev
 
@@ -18,6 +20,8 @@ COPY --from=build --chown=node:node /app/apps/api/package.json ./apps/api/packag
 COPY --from=build --chown=node:node /app/apps/api/dist ./apps/api/dist
 COPY --from=build --chown=node:node /app/apps/worker/package.json ./apps/worker/package.json
 COPY --from=build --chown=node:node /app/apps/worker/dist ./apps/worker/dist
+COPY --from=build --chown=node:node /app/scripts ./scripts
+COPY --from=build --chown=node:node /app/db ./db
 USER node
 
 FROM runtime AS web
@@ -33,3 +37,6 @@ CMD ["node", "apps/api/dist/main.js"]
 
 FROM runtime AS worker
 CMD ["node", "apps/worker/dist/main.js"]
+
+FROM runtime AS migrate
+CMD ["node", "scripts/migrate.mjs"]

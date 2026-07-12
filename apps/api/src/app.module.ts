@@ -13,6 +13,7 @@ import { DocumentsModule } from './modules/documents/documents.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { SearchModule } from './modules/search/search.module';
 import { SearchPlatformModule } from './platform/search/search-platform.module';
+import { ObservabilityModule } from './platform/observability/observability.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { SearchPlatformModule } from './platform/search/search-platform.module';
     EvidenceModule,
     ObjectStorageModule,
     SearchPlatformModule,
+    ObservabilityModule,
     HealthModule,
     WorkflowModule,
     AccessModule,

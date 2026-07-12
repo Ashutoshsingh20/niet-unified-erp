@@ -51,6 +51,11 @@ Unknown NIET rules remain configurable and blocked from production publication u
 - The web ERP shell provides OIDC/PKCE/nonce sign-in, encrypted HTTP-only BFF sessions, a live role-aware overview, scope-filtered approval inbox, request submission, decision actions, and the notification centre.
 - Automated accessibility checks cover the shell landmark/navigation structure; production build and local sign-in preview are verified without public hosting.
 - Search projections use strict OpenSearch mappings and bounded retry; API results are filtered in the index and re-authorized from PostgreSQL before disclosure.
+- The API exposes bounded-label Prometheus process/request metrics plus separate liveness and PostgreSQL readiness probes; the on-premise topology keeps metrics and application/data tiers off published host ports.
+- `npm run restore:verify` creates a checksum-protected logical backup and proves an isolated PostgreSQL recovery with migration history and a random control record. Production encryption, immutability, retention, RPO, and RTO remain explicit infrastructure/policy gates.
+- `npm run load:verify` passes a 500-request, concurrency-25 runtime/PostgreSQL smoke baseline with a zero-error and p95 threshold; it is not substituted for the D-11 production capacity workload.
+- GitHub quality gates reproduce Node 24 build, lint, tests, database migration and platform verifiers, restore proof, audit, and all four deployment-image builds.
+- `npm run platform-slice:verify` correlates one clean document, independently approved request, recipient notification, authorized search result, forbidden search denial, audit trail, and outbox evidence under one request context using real PostgreSQL and OpenSearch.
 
 ## Subsequent gates
 

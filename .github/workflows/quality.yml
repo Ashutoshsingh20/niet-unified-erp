@@ -1,0 +1,70 @@
+name: quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.6-bookworm
+        env:
+          POSTGRES_USER: niet_erp
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: niet_erp_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U niet_erp -d niet_erp_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      opensearch:
+        image: opensearchproject/opensearch:3.7.0
+        env:
+          discovery.type: single-node
+          plugins.security.disabled: "true"
+          OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+        ports: ["9200:9200"]
+    env:
+      DATABASE_URL: postgresql://niet_erp:ci-only-password@127.0.0.1:5432/niet_erp_test
+      OPENSEARCH_NODE: http://127.0.0.1:9200
+      OPENSEARCH_USERNAME: ci-verifier
+      OPENSEARCH_PASSWORD: ci-verification-password
+      OPENSEARCH_INDEX: niet-erp-ci-verification
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.1
+          cache: npm
+      - run: npm ci
+      - run: npm run verify
+      - run: npm run db:migrate
+      - run: npm run db:verify
+      - run: npm run access:verify
+      - run: npm run workflow:verify
+      - run: npm run documents:verify
+      - run: npm run notifications:verify
+      - name: Wait for OpenSearch
+        run: for attempt in {1..60}; do curl --fail --silent http://127.0.0.1:9200 >/dev/null && exit 0; sleep 2; done; exit 1
+      - run: npm run search:verify
+      - run: npm run platform-slice:verify
+      - run: npm run restore:verify
+      - run: npm audit --audit-level=moderate
+
+  container-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build deployment images
+        run: |
+          for target in api web worker migrate; do
+            docker build --file infrastructure/container/Containerfile --target "$target" --tag "niet-erp-$target:ci" .
+          done
