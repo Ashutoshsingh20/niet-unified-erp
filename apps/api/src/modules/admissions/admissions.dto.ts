@@ -22,3 +22,19 @@ export class DecideApplicationDto {
   @IsString() @MinLength(3) @MaxLength(1000) reason!: string;
   @IsInt() @Min(1) expectedVersion!: number;
 }
+export class IssueAdmissionOfferDto {
+  @Matches(/^[a-zA-Z0-9_.-]{3,100}$/) offerReference!: string;
+  @Matches(/^[a-f0-9]{64}$/) termsManifestSha256!: string;
+  @IsInt() @Min(1) expectedApplicationVersion!: number;
+}
+export class AcceptAdmissionOfferDto {
+  @IsInt() @Min(1) expectedOfferVersion!: number;
+}
+export class ConvertAdmissionDto {
+  @IsUUID() idempotencyKey!: string;
+  @IsString() @MinLength(1) @MaxLength(200) displayName!: string;
+  @Matches(/^[a-zA-Z0-9_.-]{2,100}$/) mappingEngine!: string;
+  @Matches(/^[a-zA-Z0-9_.-]{1,100}$/) mappingVersion!: string;
+  @IsObject() mappingTrace!: Record<string, unknown>;
+  @IsInt() @Min(1) expectedOfferVersion!: number;
+}

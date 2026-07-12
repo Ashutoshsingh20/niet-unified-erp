@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { DataSource, type EntityManager } from 'typeorm';
 import type { Principal } from '../../platform/auth/auth.types';
 import { PolicyService } from '../../platform/auth/policy.service';
 import { TransactionalEvidenceService } from '../../platform/evidence/transactional-evidence.service';
@@ -49,9 +49,14 @@ export class StudentsService {
 
   async create(input: CreateStudentRecordDto, actor: Principal): Promise<{ id: string; replayed: boolean }> {
     this.policy.assertScope(actor, input.scopeType, input.scopeId);
-    return this.dataSource.transaction(async (manager) => {
-      const id = randomUUID();
-      const inserted = await manager.query<readonly { id: string }[]>(
+    return this.dataSource.transaction((manager) => this.createInTransaction(manager, input, actor));
+  }
+
+  async createInTransaction(manager: EntityManager, input: CreateStudentRecordDto,
+    actor: Principal): Promise<{ id: string; replayed: boolean }> {
+    this.policy.assertScope(actor, input.scopeType, input.scopeId);
+    const id = randomUUID();
+    const inserted = await manager.query<readonly { id: string }[]>(
         `INSERT INTO student.records
           (id, subject_id, display_name, scope_type, scope_id, source_system, source_key,
            source_extracted_at, mapping_version, source_row_sha256, migration_batch_id,
@@ -62,7 +67,7 @@ export class StudentsService {
           input.sourceSystem, input.sourceKey, input.sourceExtractedAt, input.mappingVersion,
           input.sourceRowSha256, input.migrationBatchId ?? null, input.idempotencyKey, actor.subjectId],
       );
-      if (inserted[0] === undefined) {
+    if (inserted[0] === undefined) {
         const existing = await manager.query<readonly StudentRow[]>(
           `SELECT * FROM student.records
            WHERE idempotency_key = $1 OR (source_system = $2 AND source_key = $3)
@@ -73,21 +78,20 @@ export class StudentsService {
         if (row !== undefined && sameCreate(row, input)) return { id: row.id, replayed: true };
         throw new ConflictException('Student source or idempotency key already has different content');
       }
-      await manager.query(
+    await manager.query(
         `INSERT INTO student.status_history
           (id, student_id, from_status, to_status, record_version, reason, changed_by)
          VALUES ($1, $2, NULL, 'PROVISIONAL', 1, $3, $4)`,
         [randomUUID(), id, 'Created from provenance-preserving source conversion', actor.subjectId],
       );
-      await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
+    await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
         action: 'student.record.created', resourceType: 'student-record', resourceId: id,
         details: { scopeType: input.scopeType, scopeId: input.scopeId,
           sourceSystem: input.sourceSystem, mappingVersion: input.mappingVersion } });
-      await this.evidence.outbox(manager, { eventType: 'StudentCreated',
+    await this.evidence.outbox(manager, { eventType: 'StudentCreated',
         aggregateType: 'student-record', aggregateId: id, classification: 'CONFIDENTIAL',
         payload: { studentId: id, scopeType: input.scopeType, scopeId: input.scopeId } });
-      return { id, replayed: false };
-    });
+    return { id, replayed: false };
   }
 
   async get(id: string, actor: Principal): Promise<StudentRecord> {

@@ -50,6 +50,8 @@ try {
     'admissions.submissions',
     'admissions.decisions',
     'registration.timetable_meetings',
+    'admissions.offers',
+    'admissions.conversions',
     'platform.audit_events',
     'platform.outbox_events',
     'workflow.definitions',

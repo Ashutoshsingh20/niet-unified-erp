@@ -6,15 +6,21 @@ import type { Environment } from '../../config/environment';
 import type { Principal } from '../../platform/auth/auth.types';
 import { PolicyService } from '../../platform/auth/policy.service';
 import { TransactionalEvidenceService } from '../../platform/evidence/transactional-evidence.service';
-import type { CreateApplicationDto, DecideApplicationDto, SubmitApplicationDto } from './admissions.dto';
+import { StudentsService } from '../students/students.service';
+import type { AcceptAdmissionOfferDto, ConvertAdmissionDto, CreateApplicationDto,
+  DecideApplicationDto, IssueAdmissionOfferDto, SubmitApplicationDto } from './admissions.dto';
 interface ApplicationRow { id: string; applicant_subject_id: string; programme_key: string;
   payload_sha256: string; idempotency_key: string; scope_type: string; scope_id: string;
-  status: string; version: number; encryption_key_reference: string }
+  status: string; version: number; encryption_key_reference: string; created_at: Date }
+interface OfferRow { id: string; application_id: string; status: string; version: number;
+  applicant_subject_id: string; payload_sha256: string; scope_type: string; scope_id: string;
+  application_created_at: Date }
 @Injectable()
 export class AdmissionsService {
   constructor(private readonly dataSource: DataSource, private readonly policy: PolicyService,
     private readonly evidence: TransactionalEvidenceService,
-    private readonly config: ConfigService<Environment, true>) {}
+    private readonly config: ConfigService<Environment, true>,
+    private readonly students: StudentsService) {}
   async create(input: CreateApplicationDto, actor: Principal): Promise<{ id: string; replayed: boolean }> {
     this.policy.assertScope(actor, input.scopeType, input.scopeId);
     const encrypted = Buffer.from(input.encryptedPayloadBase64, 'base64');
@@ -86,10 +92,113 @@ export class AdmissionsService {
         payload: { admissionApplicationId: id } });
     });
   }
+  async issueOffer(applicationId: string, input: IssueAdmissionOfferDto,
+    actor: Principal): Promise<{ id: string }> {
+    if (!this.config.get('ADMISSION_DECISION_ENABLED', { infer: true })) {
+      throw new ForbiddenException('Admission offer issuance is disabled pending NIET policy approval');
+    }
+    return this.dataSource.transaction(async (manager) => {
+      const application = await this.lock(manager, applicationId);
+      this.policy.assertScope(actor, application.scope_type, application.scope_id);
+      if (application.status !== 'OFFERED' || application.version !== input.expectedApplicationVersion) {
+        throw new ConflictException('Application is not the expected offered version');
+      }
+      const id = randomUUID();
+      try {
+        await manager.query(`INSERT INTO admissions.offers
+          (id,application_id,offer_reference,terms_manifest_sha256,issued_by)
+          VALUES ($1,$2,$3,$4,$5)`, [id, applicationId, input.offerReference,
+          input.termsManifestSha256, actor.subjectId]);
+      } catch (error) { throwUnique(error, 'Admission application or offer reference already has an offer'); }
+      await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
+        action: 'admission.offer.issued', resourceType: 'admission-offer', resourceId: id,
+        details: { applicationId, termsManifestSha256: input.termsManifestSha256 } });
+      await this.evidence.outbox(manager, { eventType: 'AdmissionOfferIssued',
+        aggregateType: 'admission-offer', aggregateId: id, classification: 'RESTRICTED',
+        payload: { admissionOfferId: id, admissionApplicationId: applicationId } });
+      return { id };
+    });
+  }
+  async acceptOffer(id: string, input: AcceptAdmissionOfferDto, actor: Principal): Promise<void> {
+    await this.dataSource.transaction(async (manager) => {
+      const offer = await this.lockOffer(manager, id);
+      this.policy.assertScope(actor, offer.scope_type, offer.scope_id);
+      if (offer.applicant_subject_id !== actor.subjectId) {
+        throw new ForbiddenException('Only the applicant can accept this offer');
+      }
+      if (offer.status !== 'ISSUED' || offer.version !== input.expectedOfferVersion) {
+        throw new ConflictException('Admission offer is not the expected issued version');
+      }
+      await manager.query(`UPDATE admissions.offers SET status='ACCEPTED',version=version+1,
+        accepted_by=$2,accepted_at=clock_timestamp() WHERE id=$1`, [id, actor.subjectId]);
+      await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
+        action: 'admission.offer.accepted', resourceType: 'admission-offer', resourceId: id });
+      await this.evidence.outbox(manager, { eventType: 'OfferAccepted',
+        aggregateType: 'admission-offer', aggregateId: id, classification: 'RESTRICTED',
+        payload: { admissionOfferId: id, admissionApplicationId: offer.application_id } });
+    });
+  }
+  async convert(id: string, input: ConvertAdmissionDto,
+    actor: Principal): Promise<{ studentId: string; replayed: boolean }> {
+    if (!this.config.get('STUDENT_CONVERSION_ENABLED', { infer: true })) {
+      throw new ForbiddenException('Student conversion is disabled pending NIET identity and admission approval');
+    }
+    return this.dataSource.transaction(async (manager) => {
+      const offer = await this.lockOffer(manager, id);
+      this.policy.assertScope(actor, offer.scope_type, offer.scope_id);
+      const existing = await manager.query<readonly { student_id: string; idempotency_key: string;
+        mapping_engine: string; mapping_version: string; display_name: string }[]>(`SELECT c.student_id,
+        c.idempotency_key,c.mapping_engine,c.mapping_version,s.display_name FROM admissions.conversions c
+        JOIN student.records s ON s.id=c.student_id WHERE c.offer_id=$1 OR c.idempotency_key=$2`,
+      [id, input.idempotencyKey]);
+      if (existing[0] !== undefined) {
+        const row = existing[0];
+        if (row.idempotency_key === input.idempotencyKey && row.mapping_engine === input.mappingEngine
+          && row.mapping_version === input.mappingVersion && row.display_name === input.displayName) {
+          return { studentId: row.student_id, replayed: true };
+        }
+        throw new ConflictException('Admission conversion or idempotency key already has different content');
+      }
+      if (offer.status !== 'ACCEPTED' || offer.version !== input.expectedOfferVersion) {
+        throw new ConflictException('Admission offer is not the expected accepted version');
+      }
+      const student = await this.students.createInTransaction(manager, {
+        subjectId: offer.applicant_subject_id, displayName: input.displayName,
+        scopeType: offer.scope_type, scopeId: offer.scope_id, sourceSystem: 'admissions',
+        sourceKey: offer.application_id, sourceExtractedAt: offer.application_created_at.toISOString(),
+        mappingVersion: input.mappingVersion, sourceRowSha256: offer.payload_sha256,
+        idempotencyKey: input.idempotencyKey,
+      }, actor);
+      await manager.query(`INSERT INTO admissions.conversions
+        (id,application_id,offer_id,student_id,idempotency_key,mapping_engine,
+         mapping_version,mapping_trace,converted_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)`,
+      [randomUUID(), offer.application_id, id, student.id, input.idempotencyKey,
+        input.mappingEngine, input.mappingVersion, JSON.stringify(input.mappingTrace), actor.subjectId]);
+      await manager.query("UPDATE admissions.applications SET status='CONVERTED',version=version+1 WHERE id=$1",
+        [offer.application_id]);
+      await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
+        action: 'admission.application.converted', resourceType: 'admission-application',
+        resourceId: offer.application_id, details: { studentId: student.id,
+          mappingEngine: input.mappingEngine, mappingVersion: input.mappingVersion } });
+      await this.evidence.outbox(manager, { eventType: 'AdmissionConverted',
+        aggregateType: 'admission-application', aggregateId: offer.application_id,
+        classification: 'RESTRICTED', payload: { admissionApplicationId: offer.application_id,
+          studentId: student.id } });
+      return { studentId: student.id, replayed: false };
+    });
+  }
   private async lock(manager: { query: DataSource['query'] }, id: string): Promise<ApplicationRow> {
     const rows = await manager.query<readonly ApplicationRow[]>(
       'SELECT * FROM admissions.applications WHERE id=$1 FOR UPDATE', [id]);
     if (rows[0] === undefined) throw new NotFoundException('Admission application not found');
+    return rows[0];
+  }
+  private async lockOffer(manager: { query: DataSource['query'] }, id: string): Promise<OfferRow> {
+    const rows = await manager.query<readonly OfferRow[]>(`SELECT o.*,a.applicant_subject_id,
+      a.payload_sha256,a.scope_type,a.scope_id,a.created_at application_created_at
+      FROM admissions.offers o JOIN admissions.applications a ON a.id=o.application_id
+      WHERE o.id=$1 FOR UPDATE OF o,a`, [id]);
+    if (rows[0] === undefined) throw new NotFoundException('Admission offer not found');
     return rows[0];
   }
   private async replay(manager: { query: DataSource['query'] }, input: CreateApplicationDto): Promise<{ id: string; replayed: boolean }> {
@@ -101,4 +210,10 @@ export class AdmissionsService {
       && row.scope_type === input.scopeType && row.scope_id === input.scopeId) return { id: row.id, replayed: true };
     throw new ConflictException('Admission idempotency key already has different content');
   }
+}
+function throwUnique(error: unknown, message: string): never {
+  if (typeof error === 'object' && error !== null && 'code' in error && error.code === '23505') {
+    throw new ConflictException(message);
+  }
+  throw error;
 }

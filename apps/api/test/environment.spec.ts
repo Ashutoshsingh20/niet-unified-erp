@@ -40,6 +40,7 @@ describe('validateEnvironment', () => {
       MIGRATION_APPLICATION_ENABLED: false,
       ADMISSION_DECISION_ENABLED: false,
       TIMETABLE_PUBLICATION_ENABLED: false,
+      STUDENT_CONVERSION_ENABLED: false,
     });
   });
 
