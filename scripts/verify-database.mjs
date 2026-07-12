@@ -18,6 +18,8 @@ try {
     'access.reviews',
     'access.review_items',
     'organization.units',
+    'documents.types',
+    'documents.records',
     'platform.audit_events',
     'platform.outbox_events',
     'workflow.definitions',

@@ -2,7 +2,13 @@ import { validateEnvironment } from '../src/config/environment';
 
 describe('validateEnvironment', () => {
   it('provides safe development defaults', () => {
-    expect(validateEnvironment({})).toEqual({
+    expect(validateEnvironment({
+      OBJECT_STORAGE_ENDPOINT: 'http://127.0.0.1:9000',
+      OBJECT_STORAGE_ACCESS_KEY: 'test-access-key',
+      OBJECT_STORAGE_SECRET_KEY: 'test-secret-key-value',
+      OBJECT_STORAGE_QUARANTINE_BUCKET: 'test-quarantine',
+      OBJECT_STORAGE_CLEAN_BUCKET: 'test-clean',
+    })).toEqual({
       NODE_ENV: 'development',
       PORT: 3001,
       HOST: '127.0.0.1',
@@ -12,11 +18,24 @@ describe('validateEnvironment', () => {
       OIDC_ISSUER: 'http://127.0.0.1:8080/realms/niet',
       OIDC_AUDIENCE: 'niet-erp-api',
       OIDC_JWKS_URI: 'http://127.0.0.1:8080/realms/niet/protocol/openid-connect/certs',
+      OBJECT_STORAGE_ENDPOINT: 'http://127.0.0.1:9000',
+      OBJECT_STORAGE_REGION: 'us-east-1',
+      OBJECT_STORAGE_ACCESS_KEY: 'test-access-key',
+      OBJECT_STORAGE_SECRET_KEY: 'test-secret-key-value',
+      OBJECT_STORAGE_QUARANTINE_BUCKET: 'test-quarantine',
+      OBJECT_STORAGE_CLEAN_BUCKET: 'test-clean',
     });
   });
 
   it('rejects an invalid port', () => {
-    expect(() => validateEnvironment({ PORT: '70000' })).toThrow(
+    expect(() => validateEnvironment({
+      PORT: '70000',
+      OBJECT_STORAGE_ENDPOINT: 'http://127.0.0.1:9000',
+      OBJECT_STORAGE_ACCESS_KEY: 'test-access-key',
+      OBJECT_STORAGE_SECRET_KEY: 'test-secret-key-value',
+      OBJECT_STORAGE_QUARANTINE_BUCKET: 'test-quarantine',
+      OBJECT_STORAGE_CLEAN_BUCKET: 'test-clean',
+    })).toThrow(
       'Invalid environment configuration',
     );
   });

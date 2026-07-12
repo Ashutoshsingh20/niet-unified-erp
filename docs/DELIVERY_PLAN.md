@@ -43,6 +43,9 @@ Unknown NIET rules remain configurable and blocked from production publication u
 - Effective role, descendant organization scope, bounded delegation, source-revocation, and access-review revocation are exercised by `npm run access:verify`.
 - Workflow publication, maker/checker denial, approval, optimistic versioning, audit, and outbox coupling are exercised by `npm run workflow:verify`.
 - Access operating procedures are documented in `docs/runbooks/access-governance.md`.
+- Document quarantine, scanner-computed integrity, MIME enforcement, promotion, signed download, audit, and outbox behavior are exercised by `npm run documents:verify`.
+- Presigned upload, MinIO metadata, bucket promotion, and signed download are exercised against a real local MinIO service by `npm run object-storage:verify`.
+- Document security operations are documented in `docs/runbooks/document-security.md`.
 
 ## Subsequent gates
 

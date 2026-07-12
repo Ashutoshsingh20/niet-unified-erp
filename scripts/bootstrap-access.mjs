@@ -13,6 +13,7 @@ const permissions = [
   'platform.access.review',
   'platform.access.review.override',
   'platform.organization.manage',
+  'platform.documents.configure',
   'platform.workflow.configure',
   'platform.workflow.decide',
   'platform.workflow.publish',

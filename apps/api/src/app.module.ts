@@ -8,6 +8,8 @@ import { DatabaseModule } from './platform/database/database.module';
 import { WorkflowModule } from './modules/workflow/workflow.module';
 import { EvidenceModule } from './platform/evidence/evidence.module';
 import { AccessModule } from './modules/access/access.module';
+import { ObjectStorageModule } from './platform/object-storage/object-storage.module';
+import { DocumentsModule } from './modules/documents/documents.module';
 
 @Module({
   imports: [
@@ -16,9 +18,11 @@ import { AccessModule } from './modules/access/access.module';
     AuthModule,
     DatabaseModule,
     EvidenceModule,
+    ObjectStorageModule,
     HealthModule,
     WorkflowModule,
     AccessModule,
+    DocumentsModule,
   ],
 })
 export class AppModule {}

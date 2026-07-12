@@ -31,3 +31,4 @@ migration:
     - npm run build --workspace @niet/api
     - npm run access:verify
     - npm run workflow:verify
+    - npm run documents:verify

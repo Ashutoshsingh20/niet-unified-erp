@@ -18,6 +18,8 @@
     "access:bootstrap": "node scripts/bootstrap-access.mjs",
     "access:verify": "node scripts/verify-access.mjs",
     "workflow:verify": "node scripts/verify-workflow.mjs",
+    "documents:verify": "node scripts/verify-documents.mjs",
+    "object-storage:verify": "node scripts/verify-object-storage.mjs",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",

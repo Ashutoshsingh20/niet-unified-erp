@@ -12,6 +12,12 @@ const environmentSchema = z.object({
   OIDC_JWKS_URI: z.string().url().default(
     'http://127.0.0.1:8080/realms/niet/protocol/openid-connect/certs',
   ),
+  OBJECT_STORAGE_ENDPOINT: z.string().url(),
+  OBJECT_STORAGE_REGION: z.string().min(1).default('us-east-1'),
+  OBJECT_STORAGE_ACCESS_KEY: z.string().min(8),
+  OBJECT_STORAGE_SECRET_KEY: z.string().min(16),
+  OBJECT_STORAGE_QUARANTINE_BUCKET: z.string().min(3).max(63),
+  OBJECT_STORAGE_CLEAN_BUCKET: z.string().min(3).max(63),
 });
 
 export type Environment = z.infer<typeof environmentSchema>;
