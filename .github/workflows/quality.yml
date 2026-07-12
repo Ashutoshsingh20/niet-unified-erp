@@ -54,6 +54,14 @@ jobs:
         run: for attempt in {1..60}; do curl --max-time 2 --fail --silent http://127.0.0.1:9200 >/dev/null && exit 0; sleep 2; done; exit 1
       - run: npm run search:verify
       - run: npm run platform-slice:verify
+      - name: Install matching PostgreSQL 17 client
+        run: |
+          sudo install -d -m 0755 /usr/share/postgresql-common/pgdg
+          sudo curl --fail --silent --show-error --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
       - run: npm run restore:verify
       - run: npm audit --audit-level=moderate
 
