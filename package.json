@@ -40,6 +40,7 @@
     "attendance:verify": "node scripts/verify-attendance.mjs",
     "finance:verify": "node scripts/verify-finance.mjs",
     "migration:verify": "node scripts/verify-migration.mjs",
+    "admissions:verify": "node scripts/verify-admissions.mjs",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",

@@ -69,6 +69,7 @@ services:
       FINANCE_POSTING_ENABLED: "false"
       FINANCE_REVERSAL_ENABLED: "false"
       MIGRATION_APPLICATION_ENABLED: "false"
+      ADMISSION_DECISION_ENABLED: "false"
     secrets: [postgres_password, object_storage_service_password, opensearch_query_password]
     depends_on:
       migrate:

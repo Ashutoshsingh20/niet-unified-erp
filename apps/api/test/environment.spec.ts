@@ -38,6 +38,7 @@ describe('validateEnvironment', () => {
       FINANCE_POSTING_ENABLED: false,
       FINANCE_REVERSAL_ENABLED: false,
       MIGRATION_APPLICATION_ENABLED: false,
+      ADMISSION_DECISION_ENABLED: false,
     });
   });
 

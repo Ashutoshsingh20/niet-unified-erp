@@ -20,6 +20,7 @@ import { RegistrationModule } from './modules/registration/registration.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
 import { FinanceModule } from './modules/finance/finance.module';
 import { MigrationModule } from './modules/migration/migration.module';
+import { AdmissionsModule } from './modules/admissions/admissions.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { MigrationModule } from './modules/migration/migration.module';
     AttendanceModule,
     FinanceModule,
     MigrationModule,
+    AdmissionsModule,
   ],
 })
 export class AppModule {}
