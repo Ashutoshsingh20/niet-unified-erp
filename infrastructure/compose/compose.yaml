@@ -112,6 +112,7 @@ services:
       OIDC_ISSUER: ${PUBLIC_ORIGIN}/identity/realms/niet
       OIDC_CLIENT_ID: niet-erp-web
       OIDC_REDIRECT_URI: ${PUBLIC_ORIGIN}/auth/callback
+      OIDC_SELF_REGISTRATION_ENABLED: "false"
     secrets: [oidc_client_secret, session_encryption_key]
     depends_on:
       api:

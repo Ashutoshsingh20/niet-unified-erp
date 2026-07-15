@@ -13,6 +13,8 @@ Keycloak authenticates the user. The NestJS API remains authoritative for capabi
 - `OIDC_ISSUER`: exact Keycloak realm issuer.
 - `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET`: confidential BFF client.
 - `OIDC_REDIRECT_URI`: registered callback under the web origin.
+- `OIDC_SELF_REGISTRATION_ENABLED`: defaults to `false`; exposes the application-initiated
+  registration action only after the identity owner approves self-registration for that realm.
 - `SESSION_ENCRYPTION_KEY`: 32 cryptographically random bytes encoded as base64url.
 
 Secrets must come from NIET's on-premise secret store. Never place production values in environment examples, images, logs, CI variables visible to untrusted jobs, or source control.
@@ -25,6 +27,17 @@ Secrets must come from NIET's on-premise secret store. Never place production va
 - Short access-token lifetime and controlled refresh-token rotation.
 - MFA/passkey authentication policy and an assurance claim compatible with the API's step-up level.
 - Back-channel and front-channel logout policy must be confirmed during the Keycloak integration test.
+
+## Account registration
+
+The ERP does not collect or store passwords. When `OIDC_SELF_REGISTRATION_ENABLED=true`, the
+sign-in page starts the same OIDC authorization-code flow with the standards-based
+`prompt=create` parameter. Keycloak must separately have **User Registration** enabled. If either
+side is disabled, the ERP fails closed and directs the user to NIET IT provisioning.
+
+Self-registration creates an identity only. It never assigns ERP roles, scopes, student records,
+or staff permissions. Those remain explicit, audited access-governance and admission-conversion
+operations. Production activation requires D-01/D-02 identity and access-owner approval.
 
 ## BFF controls
 

@@ -8,6 +8,8 @@ const schema = z.object({
   OIDC_CLIENT_ID: z.string().min(1),
   OIDC_CLIENT_SECRET: z.string().min(16),
   OIDC_REDIRECT_URI: z.string().url(),
+  OIDC_SELF_REGISTRATION_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
   SESSION_ENCRYPTION_KEY: z.string().min(43),
 });
 
@@ -23,3 +25,6 @@ export function getWebConfig(): WebConfig {
   return cached;
 }
 
+export function isSelfRegistrationEnabled(): boolean {
+  return process.env.OIDC_SELF_REGISTRATION_ENABLED === 'true';
+}
