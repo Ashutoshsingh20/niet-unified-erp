@@ -96,6 +96,7 @@ services:
       REGISTRATION_WITHDRAWAL_ENABLED: "false"
       REGISTRATION_WINDOW_PUBLICATION_ENABLED: "false"
       REGISTRATION_WINDOW_ENFORCEMENT_ENABLED: "false"
+      REGISTRATION_ELIGIBILITY_ENFORCEMENT_ENABLED: "false"
       STUDENT_WITHDRAWAL_ENABLED: "false"
     secrets: [postgres_password, object_storage_service_password, opensearch_query_password]
     depends_on:

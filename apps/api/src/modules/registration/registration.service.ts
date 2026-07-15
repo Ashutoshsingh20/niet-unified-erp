@@ -15,6 +15,9 @@ interface OfferingRow { id: string; period_id: string; status: string; record_ve
   scope_type: string; scope_id: string; capacity: number }
 interface RequestRow { id: string; student_id: string; period_id: string; scope_type: string;
   scope_id: string; status: string; version: number; submitted_by: string; decided_by: string | null }
+interface EligibilityRow { requested_credit_units: string; maximum_credit_units: string;
+  adviser_required: boolean; adviser_approval_id: string | null; evaluation_engine: string;
+  evaluation_version: string; policy_reference: string; evaluation_trace: Record<string, unknown> }
 
 @Injectable()
 export class RegistrationService {
@@ -152,6 +155,18 @@ export class RegistrationService {
       if (offerings.length !== offeringIds.length) {
         throw new ConflictException('Every requested offering must be published in the selected period and scope');
       }
+      const eligibilityRequired = this.config.get('REGISTRATION_ELIGIBILITY_ENFORCEMENT_ENABLED',
+        { infer: true });
+      if (eligibilityRequired && input.eligibilitySnapshot === undefined) {
+        throw new ConflictException('A governed registration eligibility snapshot is required');
+      }
+      if (input.eligibilitySnapshot !== undefined) {
+        this.assertEligibilityInput(input.eligibilitySnapshot);
+        const conflicts = await this.countTimetableConflicts(manager, input.studentId, offeringIds);
+        if (conflicts !== 0) {
+          throw new ConflictException('Requested offerings conflict with the published student timetable');
+        }
+      }
       const id = randomUUID();
       const inserted = await manager.query<readonly { id: string }[]>(`INSERT INTO registration.requests
         (id,student_id,period_id,scope_type,scope_id,idempotency_key,submitted_by)
@@ -162,10 +177,33 @@ export class RegistrationService {
         await manager.query('INSERT INTO registration.request_items(request_id,offering_id) VALUES ($1,$2)',
           [id, offeringId]);
       }
+      const snapshot = input.eligibilitySnapshot;
+      if (snapshot !== undefined) {
+        try {
+          await manager.query(`INSERT INTO registration.request_eligibility_snapshots
+            (request_id,requested_credit_units,maximum_credit_units,adviser_required,
+             adviser_approval_id,timetable_conflict_count,evaluation_engine,evaluation_version,
+             policy_reference,evaluation_trace,created_by)
+            VALUES ($1,$2,$3,$4,$5,0,$6,$7,$8,$9::jsonb,$10)`, [id,
+            snapshot.requestedCreditUnits, snapshot.maximumCreditUnits, snapshot.adviserRequired,
+            snapshot.adviserApprovalId ?? null, snapshot.evaluationEngine, snapshot.evaluationVersion,
+            snapshot.policyReference, JSON.stringify(snapshot.evaluationTrace), actor.subjectId]);
+        } catch (error) {
+          if (isDatabaseConstraint(error)) {
+            throw new ConflictException('Registration eligibility evidence is not valid for this request');
+          }
+          throw error;
+        }
+      }
       await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
         action: 'registration.request.submitted', resourceType: 'registration-request', resourceId: id,
         details: { studentId: input.studentId, periodId: input.periodId,
-          offeringCount: offeringIds.length, registrationWindowId: submissionWindowId } });
+          offeringCount: offeringIds.length, registrationWindowId: submissionWindowId,
+          eligibility: snapshot === undefined ? null : { requestedCreditUnits: snapshot.requestedCreditUnits,
+            maximumCreditUnits: snapshot.maximumCreditUnits, adviserRequired: snapshot.adviserRequired,
+            adviserApprovalId: snapshot.adviserApprovalId ?? null, timetableConflictCount: 0,
+            evaluationEngine: snapshot.evaluationEngine, evaluationVersion: snapshot.evaluationVersion,
+            policyReference: snapshot.policyReference } } });
       await this.evidence.outbox(manager, { eventType: 'RegistrationRequested',
         aggregateType: 'registration-request', aggregateId: id, classification: 'CONFIDENTIAL',
         payload: { registrationRequestId: id, studentId: input.studentId } });
@@ -317,9 +355,14 @@ export class RegistrationService {
     const row = rows[0];
     const items = row === undefined ? [] : await manager.query<readonly { offering_id: string }[]>(
       'SELECT offering_id FROM registration.request_items WHERE request_id=$1 ORDER BY offering_id', [row.id]);
+    const eligibility = row === undefined ? [] : await manager.query<readonly EligibilityRow[]>(
+      `SELECT requested_credit_units,maximum_credit_units,adviser_required,adviser_approval_id,
+        evaluation_engine,evaluation_version,policy_reference,evaluation_trace
+       FROM registration.request_eligibility_snapshots WHERE request_id=$1`, [row.id]);
     if (row !== undefined && row.student_id === input.studentId && row.period_id === input.periodId
       && row.scope_type === input.scopeType && row.scope_id === input.scopeId
-      && JSON.stringify(items.map((item) => item.offering_id)) === JSON.stringify(offeringIds)) {
+      && JSON.stringify(items.map((item) => item.offering_id)) === JSON.stringify(offeringIds)
+      && eligibilityMatches(eligibility[0], input.eligibilitySnapshot)) {
       return { id: row.id, replayed: true };
     }
     throw new ConflictException('Registration idempotency key already has different content');
@@ -340,6 +383,37 @@ export class RegistrationService {
     if (offerings.some((row) => (confirmedById.get(row.id) ?? 0) >= row.capacity)) {
       throw new ConflictException('One or more offerings have no remaining confirmed capacity');
     }
+  }
+
+  private assertEligibilityInput(snapshot: NonNullable<SubmitRegistrationDto['eligibilitySnapshot']>): void {
+    if (Number(snapshot.requestedCreditUnits) > Number(snapshot.maximumCreditUnits)) {
+      throw new ConflictException('Requested credit units exceed the governed maximum');
+    }
+    if (snapshot.adviserRequired !== (snapshot.adviserApprovalId !== undefined)) {
+      throw new ConflictException('Adviser approval evidence does not match the governed requirement');
+    }
+  }
+
+  private async countTimetableConflicts(manager: { query: DataSource['query'] }, studentId: string,
+    offeringIds: readonly string[]): Promise<number> {
+    const rows = await manager.query<readonly { conflict_count: number }[]>(`WITH requested AS (
+        SELECT * FROM registration.timetable_meetings
+        WHERE status='PUBLISHED' AND offering_id=ANY($2::uuid[])
+      ), enrolled AS (
+        SELECT m.* FROM registration.timetable_meetings m
+        JOIN registration.request_items i ON i.offering_id=m.offering_id
+        JOIN registration.requests r ON r.id=i.request_id
+        WHERE r.student_id=$1 AND r.status='CONFIRMED' AND m.status='PUBLISHED'
+      ), conflicts AS (
+        SELECT a.id first_id,b.id second_id FROM requested a JOIN requested b
+          ON a.id<b.id AND a.offering_id<>b.offering_id AND a.weekday=b.weekday
+          AND int4range(a.start_minute,a.end_minute,'[)') && int4range(b.start_minute,b.end_minute,'[)')
+        UNION
+        SELECT a.id,b.id FROM requested a JOIN enrolled b
+          ON a.offering_id<>b.offering_id AND a.weekday=b.weekday
+          AND int4range(a.start_minute,a.end_minute,'[)') && int4range(b.start_minute,b.end_minute,'[)')
+      ) SELECT count(*)::int conflict_count FROM conflicts`, [studentId, offeringIds]);
+    return rows[0]?.conflict_count ?? 0;
   }
 
   private async assertOpenWindow(manager: { query: DataSource['query'] }, periodId: string,
@@ -364,4 +438,31 @@ function throwUnique(error: unknown, message: string): never {
 
 function titleCase(value: string): string {
   return value.charAt(0) + value.slice(1).toLowerCase();
+}
+
+function eligibilityMatches(row: EligibilityRow | undefined,
+  input: SubmitRegistrationDto['eligibilitySnapshot']): boolean {
+  if (row === undefined || input === undefined) return row === undefined && input === undefined;
+  return Number(row.requested_credit_units) === Number(input.requestedCreditUnits)
+    && Number(row.maximum_credit_units) === Number(input.maximumCreditUnits)
+    && row.adviser_required === input.adviserRequired
+    && row.adviser_approval_id === (input.adviserApprovalId ?? null)
+    && row.evaluation_engine === input.evaluationEngine
+    && row.evaluation_version === input.evaluationVersion
+    && row.policy_reference === input.policyReference
+    && canonicalJson(row.evaluation_trace) === canonicalJson(input.evaluationTrace);
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'undefined';
+}
+
+function isDatabaseConstraint(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error
+    && ['23503', '23514', 'P0001'].includes(String(error.code));
 }

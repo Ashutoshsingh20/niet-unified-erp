@@ -90,6 +90,8 @@ const environmentSchema = z.object({
     .transform((value) => value === 'true'),
   REGISTRATION_WINDOW_ENFORCEMENT_ENABLED: z.enum(['true', 'false']).default('false')
     .transform((value) => value === 'true'),
+  REGISTRATION_ELIGIBILITY_ENFORCEMENT_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
   STUDENT_WITHDRAWAL_ENABLED: z.enum(['true', 'false']).default('false')
     .transform((value) => value === 'true'),
 });

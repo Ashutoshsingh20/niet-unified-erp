@@ -21,7 +21,8 @@ try {
   const scopeId = randomUUID();
   const policy = new PolicyService();
   const evidence = new TransactionalEvidenceService(new RequestContextService());
-  const enabledConfig = { get: (key) => key !== 'REGISTRATION_WINDOW_ENFORCEMENT_ENABLED' };
+  const enabledConfig = { get: (key) => !['REGISTRATION_WINDOW_ENFORCEMENT_ENABLED',
+    'REGISTRATION_ELIGIBILITY_ENFORCEMENT_ENABLED'].includes(key) };
   const disabledConfig = { get: () => false };
   const attendance = new AttendanceService(dataSource, policy, evidence, enabledConfig);
   const disabledAttendance = new AttendanceService(dataSource, policy, evidence, disabledConfig);

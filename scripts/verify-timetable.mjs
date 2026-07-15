@@ -15,7 +15,8 @@ try {
   if (!String(database[0]?.name ?? '').endsWith('_test')) throw new Error('Timetable verification requires _test');
   const suffix = randomUUID().slice(0, 8); const scopeId = randomUUID();
   const policy = new PolicyService(); const evidence = new TransactionalEvidenceService(new RequestContextService());
-  const enabledConfig = { get: (key) => key !== 'REGISTRATION_WINDOW_ENFORCEMENT_ENABLED' };
+  const enabledConfig = { get: (key) => !['REGISTRATION_WINDOW_ENFORCEMENT_ENABLED',
+    'REGISTRATION_ELIGIBILITY_ENFORCEMENT_ENABLED'].includes(key) };
   const disabledConfig = { get: () => false };
   const registration = new RegistrationService(dataSource, policy, evidence, enabledConfig);
   const timetable = new TimetableService(dataSource, policy, evidence, enabledConfig);

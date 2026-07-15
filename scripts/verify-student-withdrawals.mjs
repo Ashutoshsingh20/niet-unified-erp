@@ -26,7 +26,8 @@ try {
   const scopeId = randomUUID();
   const policy = new PolicyService();
   const evidence = new TransactionalEvidenceService(new RequestContextService());
-  const config = { get: (key) => key !== 'REGISTRATION_WINDOW_ENFORCEMENT_ENABLED' };
+  const config = { get: (key) => !['REGISTRATION_WINDOW_ENFORCEMENT_ENABLED',
+    'REGISTRATION_ELIGIBILITY_ENFORCEMENT_ENABLED'].includes(key) };
   const students = new StudentsService(dataSource, policy, evidence);
   const curriculum = new CurriculumService(dataSource, policy, evidence, config);
   const programmes = new ProgrammesService(dataSource, policy, evidence, config);

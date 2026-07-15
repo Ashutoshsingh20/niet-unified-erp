@@ -34,6 +34,8 @@ try {
     'registration.offerings',
     'registration.requests',
     'registration.windows',
+    'registration.adviser_approvals',
+    'registration.request_eligibility_snapshots',
     'registration.request_items',
     'registration.decisions',
     'teaching.sessions',

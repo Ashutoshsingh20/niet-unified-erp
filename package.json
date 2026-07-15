@@ -38,6 +38,7 @@
     "curriculum:verify": "node scripts/verify-curriculum.mjs",
     "registration:verify": "node scripts/verify-registration.mjs",
     "registration-windows:verify": "node scripts/verify-registration-windows.mjs",
+    "registration-eligibility:verify": "node scripts/verify-registration-eligibility.mjs",
     "attendance:verify": "node scripts/verify-attendance.mjs",
     "finance:verify": "node scripts/verify-finance.mjs",
     "fee-structures:verify": "node scripts/verify-fee-structures.mjs",
