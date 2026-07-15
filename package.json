@@ -44,6 +44,7 @@
     "admissions:verify": "node scripts/verify-admissions.mjs",
     "admission-offers:verify": "node scripts/verify-admission-offers.mjs",
     "seat-matrices:verify": "node scripts/verify-seat-matrices.mjs",
+    "merit-lists:verify": "node scripts/verify-merit-lists.mjs",
     "admission-cancellations:verify": "node scripts/verify-admission-cancellations.mjs",
     "timetable:verify": "node scripts/verify-timetable.mjs",
     "student-core:verify": "node scripts/verify-student-core.mjs",

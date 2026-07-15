@@ -15,7 +15,7 @@ interface MatrixRow { id: string; matrix_key: string; version: number; title: st
 interface ReservationRow { id: string; matrix_id: string; application_id: string; category_id: string;
   slot_id: string; idempotency_key: string; evaluation_engine: string; evaluation_version: string;
   policy_reference: string; evaluation_trace: Record<string, unknown>; reason: string;
-  reserved_by: string; slot_number: number; category_key: string }
+  reserved_by: string; slot_number: number; category_key: string; merit_entry_id: string | null }
 export interface SeatAvailability { readonly categoryKey: string; readonly title: string;
   readonly capacity: number; readonly reserved: number; readonly converted: number;
   readonly available: number }
@@ -108,9 +108,11 @@ export class SeatMatricesService {
       const matrix = matrices[0];
       if (matrix === undefined) throw new NotFoundException('Seat matrix not found');
       this.policy.assertScope(actor, matrix.scope_type, matrix.scope_id);
-      const existing = await manager.query<readonly ReservationRow[]>(`SELECT r.*,s.slot_number,c.category_key
+      const existing = await manager.query<readonly ReservationRow[]>(`SELECT r.*,s.slot_number,c.category_key,
+        mers.merit_entry_id
         FROM admissions.seat_reservations r JOIN admissions.seat_slots s ON s.id=r.slot_id
         JOIN admissions.seat_categories c ON c.id=r.category_id
+        LEFT JOIN admissions.merit_entry_seat_reservations mers ON mers.reservation_id=r.id
         WHERE r.idempotency_key=$1 FOR UPDATE OF r`, [input.idempotencyKey]);
       if (existing[0] !== undefined) return replayReservation(existing[0], matrixId, input, actor);
       if (matrix.status !== 'PUBLISHED' || matrix.record_version !== input.expectedMatrixRecordVersion) {
@@ -130,6 +132,21 @@ export class SeatMatricesService {
         WHERE matrix_id=$1 AND category_key=$2`, [matrixId, input.categoryKey]);
       const category = categories[0];
       if (category === undefined) throw new ConflictException('Seat category is not in this matrix');
+      if (this.config.get('ADMISSION_MERIT_SEAT_ENFORCEMENT_ENABLED', { infer: true })
+        && input.meritEntryId === undefined) {
+        throw new ConflictException('A published merit entry is required for seat reservation');
+      }
+      if (input.meritEntryId !== undefined) {
+        const meritEntries = await manager.query<readonly { id: string }[]>(`SELECT e.id
+          FROM admissions.merit_list_entries e JOIN admissions.merit_lists l ON l.id=e.list_id
+          WHERE e.id=$1 AND e.application_id=$2 AND e.category_key=$3 AND l.status='PUBLISHED'
+            AND l.programme_key=$4 AND l.cycle_key=$5 AND l.scope_type=$6 AND l.scope_id=$7 FOR SHARE OF e,l`,
+        [input.meritEntryId, input.applicationId, input.categoryKey, matrix.programme_key,
+          matrix.cycle_key, matrix.scope_type, matrix.scope_id]);
+        if (meritEntries[0] === undefined) {
+          throw new ConflictException('Merit entry is not eligible for this seat reservation');
+        }
+      }
       const slots = await manager.query<readonly { id: string; slot_number: number }[]>(`SELECT s.id,s.slot_number
         FROM admissions.seat_slots s WHERE s.category_id=$1 AND NOT EXISTS (
           SELECT 1 FROM admissions.seat_reservations r WHERE r.slot_id=s.id
@@ -145,10 +162,15 @@ export class SeatMatricesService {
         slot.id, input.applicationId, input.idempotencyKey, input.evaluationEngine,
         input.evaluationVersion, input.policyReference, JSON.stringify(input.evaluationTrace),
         input.reason, actor.subjectId]);
+      if (input.meritEntryId !== undefined) {
+        await manager.query(`INSERT INTO admissions.merit_entry_seat_reservations
+          (merit_entry_id,reservation_id) VALUES ($1,$2)`, [input.meritEntryId, id]);
+      }
       await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
         action: 'admission.seat.reserved', resourceType: 'admission-seat-reservation', resourceId: id,
         details: { admissionApplicationId: input.applicationId, admissionSeatMatrixId: matrixId,
           categoryKey: input.categoryKey, slotNumber: slot.slot_number,
+          meritEntryId: input.meritEntryId,
           evaluationEngine: input.evaluationEngine, evaluationVersion: input.evaluationVersion,
           policyReference: input.policyReference } });
       await this.evidence.outbox(manager, { eventType: 'AdmissionSeatReserved',
@@ -199,6 +221,7 @@ function replayCreate(row: MatrixRow, input: CreateSeatMatrixDto, manifest: stri
 function replayReservation(row: ReservationRow, matrixId: string, input: ReserveSeatDto,
   actor: Principal): { id: string; slotNumber: number; replayed: boolean } {
   if (row.matrix_id !== matrixId || row.application_id !== input.applicationId
+    || row.merit_entry_id !== (input.meritEntryId ?? null)
     || row.category_key !== input.categoryKey || row.evaluation_engine !== input.evaluationEngine
     || row.evaluation_version !== input.evaluationVersion || row.policy_reference !== input.policyReference
     || canonicalJson(row.evaluation_trace) !== canonicalJson(input.evaluationTrace)

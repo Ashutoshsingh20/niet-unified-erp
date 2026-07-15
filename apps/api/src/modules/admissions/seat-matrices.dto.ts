@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsInt, IsObject, IsString, IsUUID,
-  Matches, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+  IsOptional, Matches, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 export class SeatCategoryDto {
   @Matches(/^[a-z][a-z0-9_.-]{1,99}$/) categoryKey!: string;
   @IsString() @MinLength(3) @MaxLength(200) title!: string;
@@ -26,6 +26,7 @@ export class PublishSeatMatrixDto {
 }
 export class ReserveSeatDto {
   @IsUUID() applicationId!: string;
+  @IsOptional() @IsUUID() meritEntryId?: string;
   @Matches(/^[a-z][a-z0-9_.-]{1,99}$/) categoryKey!: string;
   @IsUUID() idempotencyKey!: string;
   @IsInt() @Min(1) expectedMatrixRecordVersion!: number;
