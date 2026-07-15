@@ -20,7 +20,7 @@ try {
   const scopeId = randomUUID();
   const policy = new PolicyService();
   const evidence = new TransactionalEvidenceService(new RequestContextService());
-  const enabledConfig = { get: () => true };
+  const enabledConfig = { get: (key) => key !== 'REGISTRATION_WINDOW_ENFORCEMENT_ENABLED' };
   const disabledConfig = { get: () => false };
   const registration = new RegistrationService(dataSource, policy, evidence, enabledConfig);
   const disabled = new RegistrationService(dataSource, policy, evidence, disabledConfig);

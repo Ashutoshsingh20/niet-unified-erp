@@ -88,6 +88,9 @@ try {
     '/api/v1/student-withdrawals/exceptions',
     '/api/v1/registration/requests/{id}/waitlist-promotion',
     '/api/v1/registration/requests/{id}/withdrawal',
+    '/api/v1/registration/windows',
+    '/api/v1/registration/windows/active',
+    '/api/v1/registration/windows/{id}/publication',
   ];
   for (const path of required) {
     if (contract.paths?.[path] === undefined) throw new Error(`Required contract path is missing: ${path}`);

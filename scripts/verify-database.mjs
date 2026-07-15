@@ -33,6 +33,7 @@ try {
     'registration.academic_periods',
     'registration.offerings',
     'registration.requests',
+    'registration.windows',
     'registration.request_items',
     'registration.decisions',
     'teaching.sessions',

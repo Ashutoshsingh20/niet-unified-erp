@@ -118,6 +118,9 @@ export class RegistrationService {
     this.policy.assertScope(actor, input.scopeType, input.scopeId);
     const offeringIds = [...input.offeringIds].sort();
     return this.dataSource.transaction(async (manager) => {
+      const prior = await manager.query<readonly { id: string }[]>(
+        'SELECT id FROM registration.requests WHERE idempotency_key=$1', [input.idempotencyKey]);
+      if (prior[0] !== undefined) return this.resolveReplay(manager, input, offeringIds);
       const studentPeriod = await manager.query<readonly { student_scope_type: string;
         student_scope_id: string; period_scope_type: string; period_scope_id: string; status: string }[]>(
         `SELECT s.scope_type student_scope_type,s.scope_id student_scope_id,
@@ -131,6 +134,9 @@ export class RegistrationService {
         || ownership.period_scope_id !== input.scopeId) {
         throw new ConflictException('Registration student, period, and scope are not aligned');
       }
+      const submissionWindowId = this.config.get('REGISTRATION_WINDOW_ENFORCEMENT_ENABLED', { infer: true })
+        ? await this.assertOpenWindow(manager, input.periodId, 'SUBMISSION', input.scopeType, input.scopeId)
+        : null;
       if (this.config.get('STUDENT_HOLD_ENFORCEMENT_ENABLED', { infer: true })) {
         const holds = await manager.query<readonly { blocked: boolean }[]>(`SELECT EXISTS(
           SELECT 1 FROM student.holds WHERE student_id=$1 AND status='ACTIVE'
@@ -158,7 +164,8 @@ export class RegistrationService {
       }
       await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
         action: 'registration.request.submitted', resourceType: 'registration-request', resourceId: id,
-        details: { studentId: input.studentId, periodId: input.periodId, offeringCount: offeringIds.length } });
+        details: { studentId: input.studentId, periodId: input.periodId,
+          offeringCount: offeringIds.length, registrationWindowId: submissionWindowId } });
       await this.evidence.outbox(manager, { eventType: 'RegistrationRequested',
         aggregateType: 'registration-request', aggregateId: id, classification: 'CONFIDENTIAL',
         payload: { registrationRequestId: id, studentId: input.studentId } });
@@ -275,6 +282,10 @@ export class RegistrationService {
       if (!['CONFIRMED', 'WAITLISTED'].includes(request.status) || request.version !== input.expectedVersion) {
         throw new ConflictException('Registration request is not an expected withdrawable version');
       }
+      const addDropWindowId = request.status === 'CONFIRMED'
+        && this.config.get('REGISTRATION_WINDOW_ENFORCEMENT_ENABLED', { infer: true })
+        ? await this.assertOpenWindow(manager, request.period_id, 'ADD_DROP',
+          request.scope_type, request.scope_id) : null;
       await manager.query(`INSERT INTO registration.withdrawals
         (id,request_id,from_status,reason,withdrawn_by) VALUES ($1,$2,$3,$4,$5)`,
       [randomUUID(), id, request.status, input.reason, actor.subjectId]);
@@ -285,7 +296,8 @@ export class RegistrationService {
       await manager.query(`UPDATE registration.requests SET status='CANCELLED',version=version+1,
         decision_reason=$2 WHERE id=$1`, [id, input.reason]);
       await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
-        action: 'registration.request.withdrawn', resourceType: 'registration-request', resourceId: id });
+        action: 'registration.request.withdrawn', resourceType: 'registration-request', resourceId: id,
+        details: { registrationWindowId: addDropWindowId, fromStatus: request.status } });
       await this.evidence.outbox(manager, { eventType: 'RegistrationWithdrawn',
         aggregateType: 'registration-request', aggregateId: id, classification: 'CONFIDENTIAL',
         payload: { registrationRequestId: id, studentId: request.student_id } });
@@ -328,6 +340,18 @@ export class RegistrationService {
     if (offerings.some((row) => (confirmedById.get(row.id) ?? 0) >= row.capacity)) {
       throw new ConflictException('One or more offerings have no remaining confirmed capacity');
     }
+  }
+
+  private async assertOpenWindow(manager: { query: DataSource['query'] }, periodId: string,
+    windowType: 'SUBMISSION' | 'ADD_DROP', scopeType: string, scopeId: string): Promise<string> {
+    const rows = await manager.query<readonly { id: string }[]>(`SELECT id FROM registration.windows
+      WHERE period_id=$1 AND window_type=$2 AND scope_type=$3 AND scope_id=$4 AND status='PUBLISHED'
+        AND opens_at<=clock_timestamp() AND closes_at>clock_timestamp()`,
+    [periodId, windowType, scopeType, scopeId]);
+    if (rows[0] === undefined) {
+      throw new ConflictException(`No approved ${windowType.toLowerCase().replace('_', '/')} window is open`);
+    }
+    return rows[0].id;
   }
 }
 
