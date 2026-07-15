@@ -5,8 +5,11 @@ import { RegistrationWindowsController } from './registration-windows.controller
 import { RegistrationWindowsService } from './registration-windows.service';
 import { RegistrationEligibilityController } from './registration-eligibility.controller';
 import { RegistrationEligibilityService } from './registration-eligibility.service';
+import { RegistrationOverridesController } from './registration-overrides.controller';
+import { RegistrationOverridesService } from './registration-overrides.service';
 
 @Module({ controllers: [RegistrationController, RegistrationWindowsController,
-  RegistrationEligibilityController],
-  providers: [RegistrationService, RegistrationWindowsService, RegistrationEligibilityService] })
+  RegistrationEligibilityController, RegistrationOverridesController],
+  providers: [RegistrationService, RegistrationWindowsService, RegistrationEligibilityService,
+    RegistrationOverridesService] })
 export class RegistrationModule {}

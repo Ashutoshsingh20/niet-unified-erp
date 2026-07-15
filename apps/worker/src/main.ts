@@ -4,6 +4,7 @@ import { parseWorkerConfig } from './config';
 import { OutboxPublisherService, sanitizeOperationalError } from './outbox/outbox-publisher.service';
 import { RabbitEventPublisher } from './outbox/rabbit-event.publisher';
 import { SearchProjectionService } from './search/search-projection.service';
+import { WaitlistExpiryService } from './registration/waitlist-expiry.service';
 
 async function main(): Promise<void> {
   const config = parseWorkerConfig(process.env);
@@ -28,6 +29,8 @@ async function main(): Promise<void> {
       config.OPENSEARCH_INDEX, config.SEARCH_MAX_ATTEMPTS);
   }
   let stopping = false;
+  const waitlistExpiry = config.WAITLIST_EXPIRY_PROCESSOR_ENABLED
+    ? new WaitlistExpiryService(pool, config.WORKER_ID) : undefined;
 
   const stop = (): void => { stopping = true; };
   process.once('SIGINT', stop);
@@ -39,7 +42,8 @@ async function main(): Promise<void> {
       try {
         processed = outbox === undefined ? false : await outbox.processOne();
         const indexed = searchProjection === undefined ? false : await searchProjection.processOne();
-        processed = processed || indexed;
+        const expired = waitlistExpiry === undefined ? false : await waitlistExpiry.processOne();
+        processed = processed || indexed || expired;
       } catch (error) {
         process.stderr.write(`${JSON.stringify({ level: 'error', event: 'outbox_iteration_failed',
           message: sanitizeOperationalError(error) })}\n`);

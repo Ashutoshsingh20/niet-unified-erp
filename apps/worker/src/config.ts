@@ -16,8 +16,10 @@ const workerConfigSchema = z.object({
   OPENSEARCH_PASSWORD: z.string().min(16).optional(),
   OPENSEARCH_INDEX: z.string().regex(/^[a-z0-9][a-z0-9_-]{2,99}$/).default('niet-erp-search-v1'),
   SEARCH_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(100).default(20),
+  WAITLIST_EXPIRY_PROCESSOR_ENABLED: booleanSetting.default(false),
 }).superRefine((value, context) => {
-  if (!value.OUTBOX_PUBLISHER_ENABLED && !value.SEARCH_PROJECTION_ENABLED) {
+  if (!value.OUTBOX_PUBLISHER_ENABLED && !value.SEARCH_PROJECTION_ENABLED
+    && !value.WAITLIST_EXPIRY_PROCESSOR_ENABLED) {
     context.addIssue({ code: 'custom', message: 'At least one worker role must be enabled' });
   }
   if (value.OUTBOX_PUBLISHER_ENABLED && value.AMQP_URL === undefined) {

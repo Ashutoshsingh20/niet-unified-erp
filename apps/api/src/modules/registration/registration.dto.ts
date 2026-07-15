@@ -53,6 +53,16 @@ export class SubmitRegistrationDto {
   @IsString() @MinLength(1) @MaxLength(200) scopeId!: string;
   @IsOptional() @ValidateNested() @Type(() => RegistrationEligibilitySnapshotDto)
   eligibilitySnapshot?: RegistrationEligibilitySnapshotDto;
+  @IsOptional() @IsArray() @ArrayMaxSize(4) @ArrayUnique() @IsUUID('4', { each: true })
+  overrideAuthorizationIds?: string[];
+}
+
+export class WaitlistTermsDto {
+  @IsISO8601({ strict: true }) expiresAt!: string;
+  @IsString() @MinLength(3) @MaxLength(300) policyReference!: string;
+  @Matches(/^[a-zA-Z0-9_.-]{2,100}$/) evaluationEngine!: string;
+  @Matches(/^[a-zA-Z0-9_.-]{1,100}$/) evaluationVersion!: string;
+  @IsObject() evaluationTrace!: Record<string, unknown>;
 }
 
 export class DecideRegistrationDto {
@@ -64,6 +74,7 @@ export class DecideRegistrationDto {
   @IsObject() evaluationTrace!: Record<string, unknown>;
   @IsString() @MinLength(3) @MaxLength(1000) reason!: string;
   @IsInt() @Min(1) expectedVersion!: number;
+  @IsOptional() @ValidateNested() @Type(() => WaitlistTermsDto) waitlistTerms?: WaitlistTermsDto;
 }
 export class PromoteWaitlistDto {
   @Matches(/^[a-zA-Z0-9_.-]{2,100}$/) evaluationEngine!: string;

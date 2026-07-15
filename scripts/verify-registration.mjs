@@ -21,7 +21,7 @@ try {
   const policy = new PolicyService();
   const evidence = new TransactionalEvidenceService(new RequestContextService());
   const enabledConfig = { get: (key) => !['REGISTRATION_WINDOW_ENFORCEMENT_ENABLED',
-    'REGISTRATION_ELIGIBILITY_ENFORCEMENT_ENABLED'].includes(key) };
+    'REGISTRATION_ELIGIBILITY_ENFORCEMENT_ENABLED', 'WAITLIST_EXPIRY_ENFORCEMENT_ENABLED'].includes(key) };
   const disabledConfig = { get: () => false };
   const registration = new RegistrationService(dataSource, policy, evidence, enabledConfig);
   const disabled = new RegistrationService(dataSource, policy, evidence, disabledConfig);

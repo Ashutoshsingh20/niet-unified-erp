@@ -63,6 +63,7 @@ jobs:
       - run: npm run registration:verify
       - run: npm run registration-windows:verify
       - run: npm run registration-eligibility:verify
+      - run: npm run registration-overrides-expiry:verify
       - run: npm run attendance:verify
       - run: npm run finance:verify
       - run: npm run fee-structures:verify

@@ -97,6 +97,8 @@ services:
       REGISTRATION_WINDOW_PUBLICATION_ENABLED: "false"
       REGISTRATION_WINDOW_ENFORCEMENT_ENABLED: "false"
       REGISTRATION_ELIGIBILITY_ENFORCEMENT_ENABLED: "false"
+      REGISTRATION_OVERRIDE_APPROVAL_ENABLED: "false"
+      WAITLIST_EXPIRY_ENFORCEMENT_ENABLED: "false"
       STUDENT_WITHDRAWAL_ENABLED: "false"
     secrets: [postgres_password, object_storage_service_password, opensearch_query_password]
     depends_on:
@@ -193,6 +195,7 @@ services:
       SEARCH_PROJECTION_ENABLED: "false"
       OUTBOX_MAX_ATTEMPTS: 20
       OUTBOX_POLL_INTERVAL_MS: 1000
+      WAITLIST_EXPIRY_PROCESSOR_ENABLED: "false"
     secrets: [postgres_password, rabbitmq_password]
     depends_on: [postgres, rabbitmq]
     networks: [application, data]

@@ -23,4 +23,11 @@ describe('parseWorkerConfig', () => {
       'At least one worker role must be enabled',
     );
   });
+
+  it('allows a waitlist-expiry-only worker', () => {
+    const config = parseWorkerConfig({ DATABASE_URL: 'postgresql://user:pass@localhost/db',
+      OUTBOX_PUBLISHER_ENABLED: 'false', SEARCH_PROJECTION_ENABLED: 'false',
+      WAITLIST_EXPIRY_PROCESSOR_ENABLED: 'true' });
+    expect(config.WAITLIST_EXPIRY_PROCESSOR_ENABLED).toBe(true);
+  });
 });

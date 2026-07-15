@@ -18,6 +18,7 @@ interface RequestRow { id: string; student_id: string; period_id: string; scope_
 interface EligibilityRow { requested_credit_units: string; maximum_credit_units: string;
   adviser_required: boolean; adviser_approval_id: string | null; evaluation_engine: string;
   evaluation_version: string; policy_reference: string; evaluation_trace: Record<string, unknown> }
+interface OverrideUsageRow { authorization_id: string; exception_type: string }
 
 @Injectable()
 export class RegistrationService {
@@ -160,12 +161,32 @@ export class RegistrationService {
       if (eligibilityRequired && input.eligibilitySnapshot === undefined) {
         throw new ConflictException('A governed registration eligibility snapshot is required');
       }
-      if (input.eligibilitySnapshot !== undefined) {
-        this.assertEligibilityInput(input.eligibilitySnapshot);
-        const conflicts = await this.countTimetableConflicts(manager, input.studentId, offeringIds);
-        if (conflicts !== 0) {
-          throw new ConflictException('Requested offerings conflict with the published student timetable');
+      const snapshot = input.eligibilitySnapshot;
+      const timetableConflictCount = snapshot === undefined ? 0
+        : await this.countTimetableConflicts(manager, input.studentId, offeringIds);
+      const requiredOverrides = new Set<string>();
+      if (snapshot !== undefined) {
+        this.assertEligibilityInput(snapshot);
+        if (Number(snapshot.requestedCreditUnits) > Number(snapshot.maximumCreditUnits)) {
+          requiredOverrides.add('CREDIT_LIMIT');
         }
+        if (snapshot.adviserRequired && snapshot.adviserApprovalId === undefined) {
+          requiredOverrides.add('ADVISER_APPROVAL');
+        }
+        if (timetableConflictCount > 0) requiredOverrides.add('TIMETABLE_CONFLICT');
+      }
+      const overrideIds = [...(input.overrideAuthorizationIds ?? [])].sort();
+      const authorizations = overrideIds.length === 0 ? [] : await manager.query<readonly {
+        id: string; exception_type: string }[]>(`SELECT id,exception_type
+        FROM registration.override_authorizations WHERE id=ANY($1::uuid[]) AND status='APPROVED'
+          AND student_id=$2 AND period_id=$3 AND scope_type=$4 AND scope_id=$5
+          AND offering_manifest_sha256=encode(digest($6::text,'sha256'),'hex') ORDER BY id FOR UPDATE`,
+      [overrideIds, input.studentId, input.periodId, input.scopeType, input.scopeId, offeringIds.join(',')]);
+      const suppliedTypes = new Set(authorizations.map((row) => row.exception_type));
+      if (authorizations.length !== overrideIds.length || suppliedTypes.size !== authorizations.length
+        || [...requiredOverrides].some((type) => !suppliedTypes.has(type))
+        || [...suppliedTypes].some((type) => type !== 'CAPACITY' && !requiredOverrides.has(type))) {
+        throw new ConflictException('Approved overrides must exactly match the detected registration exceptions');
       }
       const id = randomUUID();
       const inserted = await manager.query<readonly { id: string }[]>(`INSERT INTO registration.requests
@@ -177,17 +198,27 @@ export class RegistrationService {
         await manager.query('INSERT INTO registration.request_items(request_id,offering_id) VALUES ($1,$2)',
           [id, offeringId]);
       }
-      const snapshot = input.eligibilitySnapshot;
+      for (const authorization of authorizations) {
+        try {
+          await manager.query(`INSERT INTO registration.request_override_usages
+            (request_id,authorization_id,exception_type,used_by) VALUES ($1,$2,$3,$4)`,
+          [id, authorization.id, authorization.exception_type, actor.subjectId]);
+        } catch (error) {
+          if (isDatabaseConstraint(error)) throw new ConflictException('Registration override is invalid or used');
+          throw error;
+        }
+      }
       if (snapshot !== undefined) {
         try {
           await manager.query(`INSERT INTO registration.request_eligibility_snapshots
             (request_id,requested_credit_units,maximum_credit_units,adviser_required,
              adviser_approval_id,timetable_conflict_count,evaluation_engine,evaluation_version,
              policy_reference,evaluation_trace,created_by)
-            VALUES ($1,$2,$3,$4,$5,0,$6,$7,$8,$9::jsonb,$10)`, [id,
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11)`, [id,
             snapshot.requestedCreditUnits, snapshot.maximumCreditUnits, snapshot.adviserRequired,
-            snapshot.adviserApprovalId ?? null, snapshot.evaluationEngine, snapshot.evaluationVersion,
-            snapshot.policyReference, JSON.stringify(snapshot.evaluationTrace), actor.subjectId]);
+            snapshot.adviserApprovalId ?? null, timetableConflictCount, snapshot.evaluationEngine,
+            snapshot.evaluationVersion, snapshot.policyReference, JSON.stringify(snapshot.evaluationTrace),
+            actor.subjectId]);
         } catch (error) {
           if (isDatabaseConstraint(error)) {
             throw new ConflictException('Registration eligibility evidence is not valid for this request');
@@ -201,9 +232,9 @@ export class RegistrationService {
           offeringCount: offeringIds.length, registrationWindowId: submissionWindowId,
           eligibility: snapshot === undefined ? null : { requestedCreditUnits: snapshot.requestedCreditUnits,
             maximumCreditUnits: snapshot.maximumCreditUnits, adviserRequired: snapshot.adviserRequired,
-            adviserApprovalId: snapshot.adviserApprovalId ?? null, timetableConflictCount: 0,
+            adviserApprovalId: snapshot.adviserApprovalId ?? null, timetableConflictCount,
             evaluationEngine: snapshot.evaluationEngine, evaluationVersion: snapshot.evaluationVersion,
-            policyReference: snapshot.policyReference } } });
+            policyReference: snapshot.policyReference }, overrideAuthorizationIds: overrideIds } });
       await this.evidence.outbox(manager, { eventType: 'RegistrationRequested',
         aggregateType: 'registration-request', aggregateId: id, classification: 'CONFIDENTIAL',
         payload: { registrationRequestId: id, studentId: input.studentId } });
@@ -232,6 +263,17 @@ export class RegistrationService {
         || regulation.scope_id !== request.scope_id) {
         throw new ConflictException('A published regulation in the request scope is required');
       }
+      if (input.outcome !== 'WAITLISTED' && input.waitlistTerms !== undefined) {
+        throw new ConflictException('Waitlist expiry terms are only valid for a waitlisted outcome');
+      }
+      if (input.outcome === 'WAITLISTED'
+        && this.config.get('WAITLIST_EXPIRY_ENFORCEMENT_ENABLED', { infer: true })
+        && input.waitlistTerms === undefined) {
+        throw new ConflictException('Governed waitlist expiry terms are required');
+      }
+      if (input.waitlistTerms !== undefined && new Date(input.waitlistTerms.expiresAt) <= new Date()) {
+        throw new ConflictException('Waitlist expiry must be in the future');
+      }
       if (input.outcome === 'CONFIRMED') await this.assertCapacity(manager, id);
       await manager.query(`UPDATE registration.requests SET status=$2,version=version+1,
         decided_by=$3,decided_at=clock_timestamp(),decision_reason=$4 WHERE id=$1`,
@@ -246,11 +288,21 @@ export class RegistrationService {
           (id,request_id,offering_id,student_id)
           SELECT gen_random_uuid(),i.request_id,i.offering_id,$2 FROM registration.request_items i
           WHERE i.request_id=$1`, [id, request.student_id]);
+        if (input.waitlistTerms !== undefined) {
+          await manager.query(`INSERT INTO registration.waitlist_terms
+            (request_id,expires_at,policy_reference,evaluation_engine,evaluation_version,
+             evaluation_trace,created_by) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7)`,
+          [id, input.waitlistTerms.expiresAt, input.waitlistTerms.policyReference,
+            input.waitlistTerms.evaluationEngine, input.waitlistTerms.evaluationVersion,
+            JSON.stringify(input.waitlistTerms.evaluationTrace), actor.subjectId]);
+        }
       }
       await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
         action: 'registration.request.decided', resourceType: 'registration-request', resourceId: id,
         details: { outcome: input.outcome, regulationId: input.regulationId,
-          evaluationEngine: input.evaluationEngine, evaluationVersion: input.evaluationVersion } });
+          evaluationEngine: input.evaluationEngine, evaluationVersion: input.evaluationVersion,
+          waitlistExpiresAt: input.waitlistTerms?.expiresAt ?? null,
+          waitlistPolicyReference: input.waitlistTerms?.policyReference ?? null } });
       await this.evidence.outbox(manager, { eventType: `Registration${titleCase(input.outcome)}`,
         aggregateType: 'registration-request', aggregateId: id, classification: 'CONFIDENTIAL',
         payload: { registrationRequestId: id, studentId: request.student_id } });
@@ -273,6 +325,10 @@ export class RegistrationService {
       if (request.status !== 'WAITLISTED' || request.version !== input.expectedVersion) {
         throw new ConflictException('Registration request is not the expected waitlisted version');
       }
+      const expiry = await manager.query<readonly { expired: boolean }[]>(`SELECT EXISTS(
+        SELECT 1 FROM registration.waitlist_terms WHERE request_id=$1 AND expires_at<=clock_timestamp()
+      ) expired`, [id]);
+      if (expiry[0]?.expired === true) throw new ConflictException('Waitlist terms have expired');
       await this.assertCapacity(manager, id);
       const target = await manager.query<readonly { id: string; offering_id: string }[]>(
         `SELECT id,offering_id FROM registration.waitlist_entries
@@ -359,10 +415,15 @@ export class RegistrationService {
       `SELECT requested_credit_units,maximum_credit_units,adviser_required,adviser_approval_id,
         evaluation_engine,evaluation_version,policy_reference,evaluation_trace
        FROM registration.request_eligibility_snapshots WHERE request_id=$1`, [row.id]);
+    const overrides = row === undefined ? [] : await manager.query<readonly OverrideUsageRow[]>(
+      `SELECT authorization_id,exception_type FROM registration.request_override_usages
+       WHERE request_id=$1 ORDER BY authorization_id`, [row.id]);
     if (row !== undefined && row.student_id === input.studentId && row.period_id === input.periodId
       && row.scope_type === input.scopeType && row.scope_id === input.scopeId
       && JSON.stringify(items.map((item) => item.offering_id)) === JSON.stringify(offeringIds)
-      && eligibilityMatches(eligibility[0], input.eligibilitySnapshot)) {
+      && eligibilityMatches(eligibility[0], input.eligibilitySnapshot)
+      && JSON.stringify(overrides.map((item) => item.authorization_id))
+        === JSON.stringify([...(input.overrideAuthorizationIds ?? [])].sort())) {
       return { id: row.id, replayed: true };
     }
     throw new ConflictException('Registration idempotency key already has different content');
@@ -380,17 +441,18 @@ export class RegistrationService {
        LEFT JOIN registration.requests r ON r.id=i.request_id AND r.status='CONFIRMED'
        GROUP BY o.id ORDER BY o.id`, [requestId]);
     const confirmedById = new Map(counts.map((row) => [row.id, row.confirmed]));
-    if (offerings.some((row) => (confirmedById.get(row.id) ?? 0) >= row.capacity)) {
+    const capacityOverride = await manager.query<readonly { present: boolean }[]>(`SELECT EXISTS(
+      SELECT 1 FROM registration.request_override_usages
+      WHERE request_id=$1 AND exception_type='CAPACITY') present`, [requestId]);
+    if (capacityOverride[0]?.present !== true
+      && offerings.some((row) => (confirmedById.get(row.id) ?? 0) >= row.capacity)) {
       throw new ConflictException('One or more offerings have no remaining confirmed capacity');
     }
   }
 
   private assertEligibilityInput(snapshot: NonNullable<SubmitRegistrationDto['eligibilitySnapshot']>): void {
-    if (Number(snapshot.requestedCreditUnits) > Number(snapshot.maximumCreditUnits)) {
-      throw new ConflictException('Requested credit units exceed the governed maximum');
-    }
-    if (snapshot.adviserRequired !== (snapshot.adviserApprovalId !== undefined)) {
-      throw new ConflictException('Adviser approval evidence does not match the governed requirement');
+    if (!snapshot.adviserRequired && snapshot.adviserApprovalId !== undefined) {
+      throw new ConflictException('Adviser approval evidence is unexpected when policy does not require it');
     }
   }
 
@@ -464,5 +526,5 @@ function canonicalJson(value: unknown): string {
 
 function isDatabaseConstraint(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error
-    && ['23503', '23514', 'P0001'].includes(String(error.code));
+    && ['23503', '23505', '23514', 'P0001'].includes(String(error.code));
 }

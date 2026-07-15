@@ -92,6 +92,8 @@ try {
     '/api/v1/registration/windows/active',
     '/api/v1/registration/windows/{id}/publication',
     '/api/v1/registration/adviser-approvals',
+    '/api/v1/registration/overrides',
+    '/api/v1/registration/overrides/{id}/decision',
   ];
   for (const path of required) {
     if (contract.paths?.[path] === undefined) throw new Error(`Required contract path is missing: ${path}`);
