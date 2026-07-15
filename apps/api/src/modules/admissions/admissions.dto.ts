@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsBase64, IsBoolean, IsIn,
   IsInt, IsObject, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min,
-  MinLength, ValidateNested } from 'class-validator';
+  MinLength, ValidateNested, IsISO8601 } from 'class-validator';
 export class CreateApplicationDto {
   @IsString() @MinLength(1) @MaxLength(200) applicantSubjectId!: string;
   @Matches(/^[a-zA-Z0-9_.-]{2,100}$/) programmeKey!: string;
@@ -28,10 +28,24 @@ export class DecideApplicationDto {
 export class IssueAdmissionOfferDto {
   @Matches(/^[a-zA-Z0-9_.-]{3,100}$/) offerReference!: string;
   @Matches(/^[a-f0-9]{64}$/) termsManifestSha256!: string;
+  @IsISO8601({ strict: true }) expiresAt!: string;
+  @IsString() @MinLength(3) @MaxLength(300) policyReference!: string;
   @IsInt() @Min(1) expectedApplicationVersion!: number;
 }
 export class AcceptAdmissionOfferDto {
   @IsInt() @Min(1) expectedOfferVersion!: number;
+}
+export class TransitionAdmissionOfferDto {
+  @IsInt() @Min(1) expectedOfferVersion!: number;
+  @IsString() @MinLength(3) @MaxLength(1000) reason!: string;
+  @IsString() @MinLength(3) @MaxLength(300) policyReference!: string;
+}
+export class AdmissionOfferExceptionsQueryDto {
+  @Matches(/^[a-z][a-z0-9_.-]{1,49}$/) scopeType!: string;
+  @IsString() @MinLength(1) @MaxLength(200) scopeId!: string;
+  @IsISO8601({ strict: true }) dueBefore!: string;
+  @Type(() => Number) @IsInt() @Min(1) @Max(100) limit = 50;
+  @IsOptional() @IsUUID() after?: string;
 }
 export class ConvertAdmissionDto {
   @IsUUID() idempotencyKey!: string;

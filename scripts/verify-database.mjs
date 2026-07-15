@@ -62,6 +62,7 @@ try {
     'admissions.document_verifications',
     'registration.timetable_meetings',
     'admissions.offers',
+    'admissions.offer_lifecycle_events',
     'admissions.conversions',
     'curriculum.programme_versions',
     'student.programme_enrolments',

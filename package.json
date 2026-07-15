@@ -41,6 +41,7 @@
     "finance:verify": "node scripts/verify-finance.mjs",
     "migration:verify": "node scripts/verify-migration.mjs",
     "admissions:verify": "node scripts/verify-admissions.mjs",
+    "admission-offers:verify": "node scripts/verify-admission-offers.mjs",
     "timetable:verify": "node scripts/verify-timetable.mjs",
     "student-core:verify": "node scripts/verify-student-core.mjs",
     "programmes:verify": "node scripts/verify-programmes.mjs",

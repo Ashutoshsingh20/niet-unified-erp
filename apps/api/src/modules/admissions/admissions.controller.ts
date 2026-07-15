@@ -3,11 +3,14 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Principal } from '../../platform/auth/auth.types';
 import { CurrentPrincipal } from '../../platform/auth/principal.decorator';
 import { RequirePermission } from '../../platform/auth/require-permission.decorator';
-import { AdmissionsService, type AdmissionDocumentException } from './admissions.service';
+import { AdmissionsService, type AdmissionDocumentException,
+  type AdmissionOfferException } from './admissions.service';
 import { AcceptAdmissionOfferDto, AdmissionDocumentExceptionsQueryDto,
+  AdmissionOfferExceptionsQueryDto,
   AttachAdmissionDocumentDto, ConvertAdmissionDto, CreateAdmissionChecklistDto,
   CreateApplicationDto, DecideApplicationDto, IssueAdmissionOfferDto,
-  PublishAdmissionChecklistDto, SubmitApplicationDto, VerifyAdmissionDocumentDto } from './admissions.dto';
+  PublishAdmissionChecklistDto, SubmitApplicationDto, TransitionAdmissionOfferDto,
+  VerifyAdmissionDocumentDto } from './admissions.dto';
 @ApiTags('admissions') @ApiBearerAuth() @Controller({ path: 'admissions', version: '1' })
 export class AdmissionsController {
   constructor(private readonly admissions: AdmissionsService) {}
@@ -64,6 +67,29 @@ export class AdmissionsController {
   @Post('offers/:id/acceptance') @RequirePermission('admission.offer.accept')
   acceptOffer(@Param('id', ParseUUIDPipe) id: string, @Body() input: AcceptAdmissionOfferDto,
     @CurrentPrincipal() actor: Principal): Promise<void> { return this.admissions.acceptOffer(id, input, actor); }
+  @Post('offers/:id/decline') @RequirePermission('admission.offer.decline')
+  declineOffer(@Param('id', ParseUUIDPipe) id: string, @Body() input: TransitionAdmissionOfferDto,
+    @CurrentPrincipal() actor: Principal): Promise<{ replayed: boolean }> {
+    return this.admissions.declineOffer(id, input, actor);
+  }
+  @Post('offers/:id/withdrawal')
+  @RequirePermission('admission.offer.withdraw', { stepUpLevel: 2 })
+  withdrawOffer(@Param('id', ParseUUIDPipe) id: string, @Body() input: TransitionAdmissionOfferDto,
+    @CurrentPrincipal() actor: Principal): Promise<{ replayed: boolean }> {
+    return this.admissions.withdrawOffer(id, input, actor);
+  }
+  @Post('offers/:id/expiration')
+  @RequirePermission('admission.offer.expire', { stepUpLevel: 2 })
+  expireOffer(@Param('id', ParseUUIDPipe) id: string, @Body() input: TransitionAdmissionOfferDto,
+    @CurrentPrincipal() actor: Principal): Promise<{ replayed: boolean }> {
+    return this.admissions.expireOffer(id, input, actor);
+  }
+  @Get('offer-exceptions') @RequirePermission('admission.offer-exception.read')
+  listOfferExceptions(@Query() input: AdmissionOfferExceptionsQueryDto,
+    @CurrentPrincipal() actor: Principal): Promise<{ items: AdmissionOfferException[];
+      nextCursor: string | null }> {
+    return this.admissions.listOfferExceptions(input, actor);
+  }
   @Post('offers/:id/conversion') @RequirePermission('admission.conversion.execute', { stepUpLevel: 2 })
   convert(@Param('id', ParseUUIDPipe) id: string, @Body() input: ConvertAdmissionDto,
     @CurrentPrincipal() actor: Principal): Promise<{ studentId: string; replayed: boolean }> {

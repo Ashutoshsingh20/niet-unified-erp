@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { AdmissionsService } from '../apps/api/dist/modules/admissions/admissions.service.js';
 import { AttendanceService } from '../apps/api/dist/modules/attendance/attendance.service.js';
 import { CurriculumService } from '../apps/api/dist/modules/curriculum/curriculum.service.js';
+import { DocumentsService } from '../apps/api/dist/modules/documents/documents.service.js';
 import { FinanceService } from '../apps/api/dist/modules/finance/finance.service.js';
 import { RegistrationService } from '../apps/api/dist/modules/registration/registration.service.js';
 import { StudentCoreService } from '../apps/api/dist/modules/student-core/student-core.service.js';
@@ -12,6 +13,22 @@ import { TimetableService } from '../apps/api/dist/modules/timetable/timetable.s
 import { PolicyService } from '../apps/api/dist/platform/auth/policy.service.js';
 import { RequestContextService } from '../apps/api/dist/platform/request-context/request-context.service.js';
 import { TransactionalEvidenceService } from '../apps/api/dist/platform/evidence/transactional-evidence.service.js';
+
+class JourneyObjectStorage {
+  metadata;
+  async createQuarantineUpload(input) {
+    this.metadata = { sizeBytes: 128, contentType: input.contentType, sha256: input.sha256 };
+    return { url: 'http://storage.invalid/journey-upload',
+      expiresAt: new Date(Date.now() + 300_000).toISOString(),
+      requiredHeaders: { 'content-type': input.contentType } };
+  }
+  async headQuarantineObject() {
+    if (this.metadata === undefined) throw new Error('No synthetic journey document');
+    return this.metadata;
+  }
+  async promoteToClean() {}
+  async createCleanDownload() { return 'http://storage.invalid/journey-download'; }
+}
 const databaseUrl = process.env.DATABASE_URL;
 if (databaseUrl === undefined) throw new Error('DATABASE_URL is required');
 const dataSource = new DataSource({ type: 'postgres', url: databaseUrl });
@@ -24,6 +41,7 @@ try {
   const config = { get: () => true };
   const students = new StudentsService(dataSource, policy, evidence);
   const admissions = new AdmissionsService(dataSource, policy, evidence, config, students);
+  const documents = new DocumentsService(dataSource, policy, evidence, new JourneyObjectStorage());
   const curriculum = new CurriculumService(dataSource, policy, evidence, config);
   const registration = new RegistrationService(dataSource, policy, evidence, config);
   const timetable = new TimetableService(dataSource, policy, evidence, config);
@@ -33,18 +51,50 @@ try {
   const applicant = { subjectId: `journey-applicant-${suffix}`, assuranceLevel: 2,
     permissions: new Set(), scopes: { organization: [scopeId] } };
   const operator = { ...applicant, subjectId: `journey-operator-${suffix}` };
+  const approver = { ...applicant, subjectId: `journey-approver-${suffix}` };
   const application = await admissions.create({ applicantSubjectId: applicant.subjectId,
     programmeKey: `PROGRAMME-${suffix}`, encryptedPayloadBase64: randomBytes(64).toString('base64'),
     encryptionKeyReference: 'synthetic-key-v1', payloadSha256: '6'.repeat(64),
     idempotencyKey: randomUUID(), scopeType: 'organization', scopeId }, applicant);
   await admissions.submit(application.id, { expectedVersion: 1,
     evidenceManifestSha256: '7'.repeat(64) }, applicant);
+  const documentTypeKey = `journey.identity-${suffix}`;
+  const documentType = await documents.createType({ typeKey: documentTypeKey, version: 1,
+    title: 'Synthetic integrated journey identity evidence', allowedMimeTypes: ['application/pdf'],
+    maxSizeBytes: 1024, classification: 'RESTRICTED', retentionDays: 30 }, operator);
+  await documents.publishType(documentType.id, operator);
+  const documentSha = '5'.repeat(64);
+  const upload = await documents.initiateUpload({ documentTypeKey, filename: 'journey-identity.pdf',
+    mimeType: 'application/pdf', sizeBytes: 128, sha256: documentSha,
+    scopeType: 'organization', scopeId }, applicant);
+  await documents.completeUpload(upload.documentId, applicant);
+  await documents.recordScan(upload.documentId, { outcome: 'CLEAN', scannerEngine: 'synthetic-av',
+    signatureVersion: 'v1', detectedMimeType: 'application/pdf', computedSha256: documentSha,
+    reason: 'Synthetic integrated journey document is clean' }, operator);
+  await documents.promote(upload.documentId, operator);
+  const checklist = await admissions.createDocumentChecklist(application.id, {
+    idempotencyKey: randomUUID(), policyReference: 'SYNTHETIC-INTEGRATED-DOCUMENT-POLICY',
+    expectedApplicationVersion: 2, items: [{ requirementKey: 'identity-proof',
+      title: 'Identity proof', documentTypeKey, required: true }] }, operator);
+  await admissions.publishDocumentChecklist(checklist.id, { expectedChecklistVersion: 1 }, approver);
+  const checklistItems = await dataSource.query(
+    'SELECT id FROM admissions.document_checklist_items WHERE checklist_id=$1', [checklist.id]);
+  const checklistItemId = checklistItems[0]?.id;
+  if (checklistItemId === undefined) throw new Error('Integrated journey checklist item is missing');
+  const attachment = await admissions.attachDocument(checklistItemId,
+    { documentId: upload.documentId }, applicant);
+  const verification = await admissions.verifyDocument(attachment.id, {
+    outcome: 'VERIFIED', verificationEngine: 'synthetic-journey-verifier',
+    verificationVersion: 'v1', verificationTrace: { result: 'SYNTHETIC_MATCH' },
+    evidenceSha256: '4'.repeat(64), reason: 'Synthetic integrated identity evidence matched' }, operator);
+  if (!verification.checklistComplete) throw new Error('Integrated admission document checklist is incomplete');
   await admissions.decide(application.id, { outcome: 'OFFERED', evaluationEngine: 'synthetic-evaluator',
     evaluationVersion: 'v1', regulationReference: 'SYNTHETIC-VERIFICATION-ONLY',
     evaluationTrace: { result: 'SYNTHETIC_ELIGIBLE' }, reason: 'Synthetic journey offer',
     expectedVersion: 2 }, operator);
   const offer = await admissions.issueOffer(application.id, { offerReference: `JOURNEY-${suffix}`,
-    termsManifestSha256: '8'.repeat(64), expectedApplicationVersion: 3 }, operator);
+    termsManifestSha256: '8'.repeat(64), expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    policyReference: 'SYNTHETIC-INTEGRATED-JOURNEY-OFFER-POLICY', expectedApplicationVersion: 3 }, operator);
   await admissions.acceptOffer(offer.id, { expectedOfferVersion: 1 }, applicant);
   const conversion = await admissions.convert(offer.id, { idempotencyKey: randomUUID(),
     displayName: 'Synthetic Journey Student', mappingEngine: 'synthetic-mapper', mappingVersion: 'v1',
@@ -107,5 +157,5 @@ try {
   try { await core.overview({ ...applicant, subjectId: `other-${suffix}` }); }
   catch (error) { wrongIdentityDenied = error instanceof NotFoundException; }
   if (!wrongIdentityDenied) throw new Error('Student-core overview exposed another identity');
-  process.stdout.write('Integrated admission conversion, registration, published timetable, finalized attendance, derived fee balance, self identity, and scope denial verified\n');
+  process.stdout.write('Integrated clean admission document verification, offer conversion, registration, published timetable, finalized attendance, derived fee balance, self identity, and scope denial verified\n');
 } finally { await dataSource.destroy(); }

@@ -168,7 +168,8 @@ try {
   catch (error) { missingDocumentsBlocked = error instanceof ConflictException; }
   if (!missingDocumentsBlocked) throw new Error('Offer decision ignored required admission documents');
   const offer = await enabled.issueOffer(created.id, { offerReference: `OFFER-${suffix}`,
-    termsManifestSha256: 'd'.repeat(64), expectedApplicationVersion: 3 }, reviewer);
+    termsManifestSha256: 'd'.repeat(64), expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    policyReference: 'SYNTHETIC-OFFER-LIFECYCLE-POLICY', expectedApplicationVersion: 3 }, reviewer);
   let applicantOwnership = false;
   try { await enabled.acceptOffer(offer.id, { expectedOfferVersion: 1 }, reviewer); }
   catch (error) { applicantOwnership = error instanceof ForbiddenException; }

@@ -8,15 +8,18 @@ import { PolicyService } from '../../platform/auth/policy.service';
 import { TransactionalEvidenceService } from '../../platform/evidence/transactional-evidence.service';
 import { StudentsService } from '../students/students.service';
 import type { AcceptAdmissionOfferDto, AdmissionDocumentExceptionsQueryDto,
+  AdmissionOfferExceptionsQueryDto,
   AttachAdmissionDocumentDto, ConvertAdmissionDto, CreateAdmissionChecklistDto,
   CreateApplicationDto, DecideApplicationDto, IssueAdmissionOfferDto,
-  PublishAdmissionChecklistDto, SubmitApplicationDto, VerifyAdmissionDocumentDto } from './admissions.dto';
+  PublishAdmissionChecklistDto, SubmitApplicationDto, TransitionAdmissionOfferDto,
+  VerifyAdmissionDocumentDto } from './admissions.dto';
 interface ApplicationRow { id: string; applicant_subject_id: string; programme_key: string;
   payload_sha256: string; idempotency_key: string; scope_type: string; scope_id: string;
   status: string; version: number; encryption_key_reference: string; created_at: Date }
 interface OfferRow { id: string; application_id: string; status: string; version: number;
   applicant_subject_id: string; payload_sha256: string; scope_type: string; scope_id: string;
-  application_created_at: Date }
+  application_created_at: Date; programme_key: string; offer_reference: string;
+  policy_reference: string | null; expires_at: Date | null; issued_by: string }
 interface ChecklistRow { id: string; application_id: string; idempotency_key: string;
   policy_reference: string; items_manifest_sha256: string; status: string; version: number;
   configured_by: string; published_by: string | null; applicant_subject_id: string;
@@ -39,6 +42,14 @@ export interface AdmissionDocumentException {
   readonly title: string;
   readonly documentTypeKey: string;
   readonly latestOutcome: 'REJECTED' | null;
+}
+export interface AdmissionOfferException {
+  readonly offerId: string;
+  readonly applicationId: string;
+  readonly programmeKey: string;
+  readonly offerReference: string;
+  readonly expiresAt: string;
+  readonly policyReference: string;
 }
 @Injectable()
 export class AdmissionsService {
@@ -344,16 +355,20 @@ export class AdmissionsService {
       if (application.status !== 'OFFERED' || application.version !== input.expectedApplicationVersion) {
         throw new ConflictException('Application is not the expected offered version');
       }
+      const expiry = await manager.query<readonly { future: boolean }[]>(
+        'SELECT $1::timestamptz > clock_timestamp() future', [input.expiresAt]);
+      if (expiry[0]?.future !== true) throw new ConflictException('Admission offer expiry must be in the future');
       const id = randomUUID();
       try {
         await manager.query(`INSERT INTO admissions.offers
-          (id,application_id,offer_reference,terms_manifest_sha256,issued_by)
-          VALUES ($1,$2,$3,$4,$5)`, [id, applicationId, input.offerReference,
-          input.termsManifestSha256, actor.subjectId]);
+          (id,application_id,offer_reference,terms_manifest_sha256,expires_at,policy_reference,issued_by)
+          VALUES ($1,$2,$3,$4,$5,$6,$7)`, [id, applicationId, input.offerReference,
+          input.termsManifestSha256, input.expiresAt, input.policyReference, actor.subjectId]);
       } catch (error) { throwUnique(error, 'Admission application or offer reference already has an offer'); }
       await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
         action: 'admission.offer.issued', resourceType: 'admission-offer', resourceId: id,
-        details: { applicationId, termsManifestSha256: input.termsManifestSha256 } });
+        details: { applicationId, termsManifestSha256: input.termsManifestSha256,
+          expiresAt: input.expiresAt, policyReference: input.policyReference } });
       await this.evidence.outbox(manager, { eventType: 'AdmissionOfferIssued',
         aggregateType: 'admission-offer', aggregateId: id, classification: 'RESTRICTED',
         payload: { admissionOfferId: id, admissionApplicationId: applicationId } });
@@ -370,6 +385,11 @@ export class AdmissionsService {
       if (offer.status !== 'ISSUED' || offer.version !== input.expectedOfferVersion) {
         throw new ConflictException('Admission offer is not the expected issued version');
       }
+      const validity = await manager.query<readonly { valid: boolean }[]>(
+        'SELECT $1::timestamptz > clock_timestamp() valid', [offer.expires_at]);
+      if (offer.expires_at === null || validity[0]?.valid !== true) {
+        throw new ConflictException('Admission offer has expired');
+      }
       await manager.query(`UPDATE admissions.offers SET status='ACCEPTED',version=version+1,
         accepted_by=$2,accepted_at=clock_timestamp() WHERE id=$1`, [id, actor.subjectId]);
       await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
@@ -379,6 +399,43 @@ export class AdmissionsService {
         payload: { admissionOfferId: id, admissionApplicationId: offer.application_id } });
     });
   }
+
+  declineOffer(id: string, input: TransitionAdmissionOfferDto,
+    actor: Principal): Promise<{ replayed: boolean }> {
+    return this.transitionOffer(id, input, actor, 'DECLINED');
+  }
+
+  withdrawOffer(id: string, input: TransitionAdmissionOfferDto,
+    actor: Principal): Promise<{ replayed: boolean }> {
+    return this.transitionOffer(id, input, actor, 'WITHDRAWN');
+  }
+
+  expireOffer(id: string, input: TransitionAdmissionOfferDto,
+    actor: Principal): Promise<{ replayed: boolean }> {
+    return this.transitionOffer(id, input, actor, 'EXPIRED');
+  }
+
+  async listOfferExceptions(input: AdmissionOfferExceptionsQueryDto,
+    actor: Principal): Promise<{ items: AdmissionOfferException[]; nextCursor: string | null }> {
+    this.policy.assertScope(actor, input.scopeType, input.scopeId);
+    const rows = await this.dataSource.query<readonly { offer_id: string; application_id: string;
+      programme_key: string; offer_reference: string; expires_at: Date;
+      policy_reference: string }[]>(`SELECT o.id offer_id,a.id application_id,a.programme_key,
+      o.offer_reference,o.expires_at,o.policy_reference FROM admissions.offers o
+      JOIN admissions.applications a ON a.id=o.application_id
+      WHERE o.status='ISSUED' AND o.expires_at<=$1::timestamptz
+        AND a.scope_type=$2 AND a.scope_id=$3 AND ($4::uuid IS NULL OR o.id>$4)
+      ORDER BY o.id LIMIT $5`, [input.dueBefore, input.scopeType, input.scopeId,
+      input.after ?? null, input.limit + 1]);
+    const hasNext = rows.length > input.limit;
+    const page = rows.slice(0, input.limit);
+    return { items: page.map((row) => ({ offerId: row.offer_id,
+      applicationId: row.application_id, programmeKey: row.programme_key,
+      offerReference: row.offer_reference, expiresAt: row.expires_at.toISOString(),
+      policyReference: row.policy_reference })),
+    nextCursor: hasNext ? page.at(-1)?.offer_id ?? null : null };
+  }
+
   async convert(id: string, input: ConvertAdmissionDto,
     actor: Principal): Promise<{ studentId: string; replayed: boolean }> {
     if (!this.config.get('STUDENT_CONVERSION_ENABLED', { infer: true })) {
@@ -430,7 +487,8 @@ export class AdmissionsService {
   }
 
   private assertEnabled(key: keyof Pick<Environment, 'ADMISSION_DOCUMENT_CHECKLIST_ENABLED'
-    | 'ADMISSION_DOCUMENT_VERIFICATION_ENABLED'>, message: string): void {
+    | 'ADMISSION_DOCUMENT_VERIFICATION_ENABLED' | 'ADMISSION_OFFER_LIFECYCLE_ENABLED'>,
+  message: string): void {
     if (!this.config.get(key, { infer: true })) throw new ForbiddenException(message);
   }
 
@@ -488,11 +546,66 @@ export class AdmissionsService {
   }
   private async lockOffer(manager: EntityManager, id: string): Promise<OfferRow> {
     const rows = await manager.query<readonly OfferRow[]>(`SELECT o.*,a.applicant_subject_id,
-      a.payload_sha256,a.scope_type,a.scope_id,a.created_at application_created_at
+      a.payload_sha256,a.scope_type,a.scope_id,a.programme_key,a.created_at application_created_at
       FROM admissions.offers o JOIN admissions.applications a ON a.id=o.application_id
       WHERE o.id=$1 FOR UPDATE OF o,a`, [id]);
     if (rows[0] === undefined) throw new NotFoundException('Admission offer not found');
     return rows[0];
+  }
+
+  private async transitionOffer(id: string, input: TransitionAdmissionOfferDto, actor: Principal,
+    target: 'DECLINED' | 'WITHDRAWN' | 'EXPIRED'): Promise<{ replayed: boolean }> {
+    this.assertEnabled('ADMISSION_OFFER_LIFECYCLE_ENABLED',
+      'Admission offer lifecycle actions are disabled pending NIET policy approval');
+    return this.dataSource.transaction(async (manager) => {
+      const offer = await this.lockOffer(manager, id);
+      this.policy.assertScope(actor, offer.scope_type, offer.scope_id);
+      const existing = await manager.query<readonly { transition: string; reason: string;
+        policy_reference: string; acted_by: string }[]>(
+        'SELECT transition,reason,policy_reference,acted_by FROM admissions.offer_lifecycle_events WHERE offer_id=$1',
+      [id]);
+      if (offer.status === target && offer.version === input.expectedOfferVersion + 1
+        && existing[0]?.transition === target && existing[0].reason === input.reason
+        && existing[0].policy_reference === input.policyReference
+        && existing[0].acted_by === actor.subjectId) return { replayed: true };
+      if (offer.status !== 'ISSUED' || offer.version !== input.expectedOfferVersion) {
+        throw new ConflictException('Admission offer is not the expected issued version');
+      }
+      if (offer.policy_reference === null || offer.policy_reference !== input.policyReference) {
+        throw new ConflictException('Offer transition does not reference the governing issuance policy');
+      }
+      if (target === 'DECLINED') {
+        if (offer.applicant_subject_id !== actor.subjectId) {
+          throw new ForbiddenException('Only the applicant can decline this offer');
+        }
+      } else if (offer.issued_by === actor.subjectId) {
+        throw new ForbiddenException('Offer issuer cannot perform the exceptional lifecycle transition');
+      }
+      if (target === 'EXPIRED') {
+        const expiry = await manager.query<readonly { expired: boolean }[]>(
+          'SELECT $1::timestamptz <= clock_timestamp() expired', [offer.expires_at]);
+        if (offer.expires_at === null || expiry[0]?.expired !== true) {
+          throw new ConflictException('Admission offer has not reached its configured expiry');
+        }
+      }
+      await manager.query(`INSERT INTO admissions.offer_lifecycle_events
+        (id,offer_id,application_id,transition,from_status,to_status,reason,policy_reference,acted_by)
+        VALUES ($1,$2,$3,$4,'ISSUED',$4,$5,$6,$7)`, [randomUUID(), id, offer.application_id,
+        target, input.reason, input.policyReference, actor.subjectId]);
+      await manager.query('UPDATE admissions.offers SET status=$2,version=version+1 WHERE id=$1', [id, target]);
+      await manager.query(`UPDATE admissions.applications SET status='WITHDRAWN',version=version+1
+        WHERE id=$1 AND status='OFFERED'`, [offer.application_id]);
+      await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
+        action: `admission.offer.${target.toLowerCase()}`, resourceType: 'admission-offer', resourceId: id,
+        details: { applicationId: offer.application_id, reason: input.reason,
+          policyReference: input.policyReference } });
+      const eventTypes = { DECLINED: 'AdmissionOfferDeclined', WITHDRAWN: 'AdmissionOfferWithdrawn',
+        EXPIRED: 'AdmissionOfferExpired' } as const;
+      await this.evidence.outbox(manager, { eventType: eventTypes[target],
+        aggregateType: 'admission-offer', aggregateId: id, classification: 'RESTRICTED',
+        payload: { admissionOfferId: id, admissionApplicationId: offer.application_id } });
+      return { replayed: false };
+    });
   }
   private async replay(manager: EntityManager, input: CreateApplicationDto): Promise<{ id: string; replayed: boolean }> {
     const rows = await manager.query<readonly ApplicationRow[]>(
