@@ -36,6 +36,7 @@
     "oidc:verify": "node scripts/verify-oidc.mjs",
     "students:verify": "node scripts/verify-students.mjs",
     "curriculum:verify": "node scripts/verify-curriculum.mjs",
+    "curriculum-requirements:verify": "node scripts/verify-curriculum-requirements.mjs",
     "registration:verify": "node scripts/verify-registration.mjs",
     "registration-windows:verify": "node scripts/verify-registration-windows.mjs",
     "registration-eligibility:verify": "node scripts/verify-registration-eligibility.mjs",

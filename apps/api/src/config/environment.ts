@@ -24,6 +24,12 @@ const environmentSchema = z.object({
   OPENSEARCH_INDEX: z.string().regex(/^[a-z0-9][a-z0-9_-]{2,99}$/).default('niet-erp-search-v1'),
   ACADEMIC_POLICY_PUBLICATION_ENABLED: z.enum(['true', 'false']).default('false')
     .transform((value) => value === 'true'),
+  CURRICULUM_CATALOGUE_PUBLICATION_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
+  CURRICULUM_REQUIREMENT_PUBLICATION_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
+  CURRICULUM_REQUIREMENT_EVALUATION_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
   REGISTRATION_DECISION_ENABLED: z.enum(['true', 'false']).default('false')
     .transform((value) => value === 'true'),
   ATTENDANCE_FINALIZATION_ENABLED: z.enum(['true', 'false']).default('false')
