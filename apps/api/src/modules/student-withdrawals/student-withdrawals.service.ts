@@ -22,6 +22,7 @@ export interface StudentWithdrawalException {
   readonly activeHoldCount: number;
   readonly openRegistrationCount: number;
   readonly openProgrammeEnrolmentCount: number;
+  readonly pendingAddDropCount: number;
   readonly pendingFinanceCount: number;
   readonly nonZeroAccountCount: number;
 }
@@ -128,13 +129,15 @@ export class StudentWithdrawalsService {
     this.policy.assertScope(actor, input.scopeType, input.scopeId);
     const rows = await this.dataSource.query<readonly { request_id: string; student_id: string;
       active_holds: number; open_registrations: number; open_enrolments: number;
-      pending_finance: number; nonzero_accounts: number }[]>(`SELECT r.id request_id,r.student_id,
+      pending_add_drop: number; pending_finance: number; nonzero_accounts: number }[]>(`SELECT r.id request_id,r.student_id,
       (SELECT count(*)::int FROM student.holds h WHERE h.student_id=r.student_id
         AND h.status IN ('PROPOSED','ACTIVE')) active_holds,
       (SELECT count(*)::int FROM registration.requests rr WHERE rr.student_id=r.student_id
         AND rr.status IN ('CONFIRMED','WAITLISTED')) open_registrations,
       (SELECT count(*)::int FROM student.programme_enrolments pe WHERE pe.student_id=r.student_id
         AND pe.status IN ('PROVISIONAL','ACTIVE')) open_enrolments,
+      (SELECT count(*)::int FROM registration.add_drop_requests adr WHERE adr.student_id=r.student_id
+        AND adr.status='PENDING') pending_add_drop,
       (SELECT count(*)::int FROM admissions.conversions c
         JOIN admissions.cancellation_requests cr ON cr.offer_id=c.offer_id
         WHERE c.student_id=r.student_id AND cr.status='PENDING_FINANCE') pending_finance,
@@ -154,13 +157,13 @@ export class StudentWithdrawalsService {
     return { items: page.map((row) => ({ requestId: row.request_id, studentId: row.student_id,
       activeHoldCount: row.active_holds, openRegistrationCount: row.open_registrations,
       openProgrammeEnrolmentCount: row.open_enrolments, pendingFinanceCount: row.pending_finance,
-      nonZeroAccountCount: row.nonzero_accounts })),
+      pendingAddDropCount: row.pending_add_drop, nonZeroAccountCount: row.nonzero_accounts })),
     nextCursor: hasNext ? page.at(-1)?.request_id ?? null : null };
   }
 
   private async assertHardBlockersCleared(manager: EntityManager, studentId: string): Promise<void> {
     const blockers = await manager.query<readonly { active_holds: number; pending_finance: number;
-      pending_refunds: number }[]>(`SELECT
+      pending_refunds: number; pending_add_drop: number }[]>(`SELECT
       (SELECT count(*)::int FROM student.holds WHERE student_id=$1
         AND status IN ('PROPOSED','ACTIVE')) active_holds,
       (SELECT count(*)::int FROM admissions.conversions c
@@ -171,11 +174,13 @@ export class StudentWithdrawalsService {
         JOIN finance.postings p ON p.account_id=a.id
         JOIN finance.refund_requests rr ON rr.original_payment_posting_id=p.id
         LEFT JOIN finance.refund_decisions rd ON rd.request_id=rr.id
-        WHERE COALESCE(a.student_id,fasl.student_id)=$1 AND rd.id IS NULL) pending_refunds`, [studentId]);
+        WHERE COALESCE(a.student_id,fasl.student_id)=$1 AND rd.id IS NULL) pending_refunds,
+      (SELECT count(*)::int FROM registration.add_drop_requests
+        WHERE student_id=$1 AND status='PENDING') pending_add_drop`, [studentId]);
     const row = blockers[0];
     if ((row?.active_holds ?? 0) > 0 || (row?.pending_finance ?? 0) > 0
-      || (row?.pending_refunds ?? 0) > 0) {
-      throw new ConflictException('Student withdrawal has unresolved hold or finance blockers');
+      || (row?.pending_refunds ?? 0) > 0 || (row?.pending_add_drop ?? 0) > 0) {
+      throw new ConflictException('Student withdrawal has unresolved hold, finance, or add/drop blockers');
     }
   }
 

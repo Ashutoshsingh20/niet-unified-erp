@@ -6,6 +6,7 @@ import { FinanceService } from '../apps/api/dist/modules/finance/finance.service
 import { HoldsService } from '../apps/api/dist/modules/holds/holds.service.js';
 import { ProgrammesService } from '../apps/api/dist/modules/programmes/programmes.service.js';
 import { RegistrationService } from '../apps/api/dist/modules/registration/registration.service.js';
+import { RegistrationAddDropService } from '../apps/api/dist/modules/registration/registration-add-drop.service.js';
 import { StudentsService } from '../apps/api/dist/modules/students/students.service.js';
 import { StudentWithdrawalsService } from '../apps/api/dist/modules/student-withdrawals/student-withdrawals.service.js';
 import { PolicyService } from '../apps/api/dist/platform/auth/policy.service.js';
@@ -32,6 +33,7 @@ try {
   const curriculum = new CurriculumService(dataSource, policy, evidence, config);
   const programmes = new ProgrammesService(dataSource, policy, evidence, config);
   const registration = new RegistrationService(dataSource, policy, evidence, config);
+  const addDrop = new RegistrationAddDropService(dataSource, policy, evidence, config);
   const holds = new HoldsService(dataSource, policy, evidence, config);
   const finance = new FinanceService(dataSource, policy, evidence, config);
   const withdrawals = new StudentWithdrawalsService(dataSource, policy, evidence, config);
@@ -80,12 +82,23 @@ try {
     offeringKey: `WITHDRAWAL-SECTION-${suffix}`, courseKey: `WITHDRAWAL-COURSE-${suffix}`,
     title: 'Synthetic withdrawal course', capacity: 5, scopeType: 'organization', scopeId }, operator);
   await registration.publishOffering(offering.id, { expectedRecordVersion: 1 }, operator);
+  const replacementOffering = await registration.createOffering({ periodId: period.id,
+    offeringKey: `WITHDRAWAL-REPLACEMENT-${suffix}`, courseKey: `WITHDRAWAL-REPLACEMENT-${suffix}`,
+    title: 'Synthetic withdrawal replacement course', capacity: 5,
+    scopeType: 'organization', scopeId }, operator);
+  await registration.publishOffering(replacementOffering.id, { expectedRecordVersion: 1 }, operator);
   const registrationRequest = await registration.submit({ studentId: student.id, periodId: period.id,
     offeringIds: [offering.id], idempotencyKey: randomUUID(), scopeType: 'organization', scopeId }, studentPrincipal);
   await registration.decide(registrationRequest.id, { outcome: 'CONFIRMED', regulationId: regulation.id,
     evaluationEngine: 'synthetic-registration', evaluationVersion: 'v1',
     evaluationTrace: { result: 'SYNTHETIC_CONFIRMED' }, reason: 'Synthetic confirmation',
     expectedVersion: 1 }, operator);
+  const pendingAddDrop = await addDrop.create({ registrationRequestId: registrationRequest.id,
+    beforeOfferingIds: [offering.id], afterOfferingIds: [replacementOffering.id],
+    idempotencyKey: randomUUID(), scopeType: 'organization', scopeId,
+    eligibilitySnapshot: { requestedCreditUnits: '4.00', maximumCreditUnits: '24.00',
+      adviserRequired: false, evaluationEngine: 'synthetic-withdrawal-add-drop', evaluationVersion: 'v1',
+      policyReference, evaluationTrace: { result: 'SYNTHETIC' } } }, studentPrincipal);
   const account = await finance.createAccount({ studentId: student.id, currency: 'INR',
     scopeType: 'organization', scopeId }, operator);
   await finance.post({ accountId: account.id, amountMinor: '1000', currency: 'INR',
@@ -114,7 +127,8 @@ try {
   const worklist = await withdrawals.list({ scopeType: 'organization', scopeId, limit: 50 }, operator);
   const workItem = worklist.items.find((item) => item.requestId === request.id);
   if (workItem?.activeHoldCount !== 1 || workItem.openRegistrationCount !== 1
-    || workItem.openProgrammeEnrolmentCount !== 1 || workItem.nonZeroAccountCount !== 1) {
+    || workItem.openProgrammeEnrolmentCount !== 1 || workItem.pendingAddDropCount !== 1
+    || workItem.nonZeroAccountCount !== 1) {
     throw new Error('Student withdrawal worklist did not expose authoritative dependencies');
   }
   let scopeDenied = false;
@@ -134,6 +148,14 @@ try {
   if (!holdBlocked) throw new Error('Active hold did not block student withdrawal');
   await holds.release(hold.id, { expectedVersion: 2, reason: 'Synthetic blocker cleared',
     evidenceReference: 'SYNTHETIC-WITHDRAWAL-HOLD-RELEASE' }, checker);
+  let addDropBlocked = false;
+  try { await withdrawals.decide(request.id, decision, operator); }
+  catch (error) { addDropBlocked = error instanceof ConflictException; }
+  if (!addDropBlocked) throw new Error('Pending add/drop did not block student withdrawal');
+  await addDrop.decide(pendingAddDrop.id, { outcome: 'REJECTED',
+    evaluationEngine: 'synthetic-withdrawal-add-drop-decision', evaluationVersion: 'v1',
+    evaluationTrace: { result: 'SYNTHETIC_REJECTED' }, reason: 'Close add/drop before withdrawal',
+    expectedVersion: 1 }, operator);
   const approved = await withdrawals.decide(request.id, decision, operator);
   const approvedReplay = await withdrawals.decide(request.id, decision, operator);
   if (approved.status !== 'WITHDRAWN' || approved.replayed || !approvedReplay.replayed) {
@@ -179,7 +201,7 @@ try {
     || proof?.audits !== 2 || proof?.events !== 2) {
     throw new Error('Student withdrawal cross-domain state or evidence is incomplete');
   }
-  process.stdout.write('Student-owned withdrawal, scoped dependency worklist, hold/finance fail-closed boundary, maker-checker decision, atomic programme/registration closure, status history, exact replay, immutable evidence, audit, and outbox verified\n');
+  process.stdout.write('Student-owned withdrawal, scoped dependency worklist, hold/finance/add-drop fail-closed boundary, maker-checker decision, atomic programme/registration closure, status history, exact replay, immutable evidence, audit, and outbox verified\n');
 } finally {
   await dataSource.destroy();
 }

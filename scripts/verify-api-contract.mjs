@@ -98,6 +98,8 @@ try {
     '/api/v1/registration/capacity/pools/{id}/publication',
     '/api/v1/registration/capacity/entitlements',
     '/api/v1/registration/capacity/entitlements/{id}/decision',
+    '/api/v1/registration/add-drop/requests',
+    '/api/v1/registration/add-drop/requests/{id}/decision',
   ];
   for (const path of required) {
     if (contract.paths?.[path] === undefined) throw new Error(`Required contract path is missing: ${path}`);

@@ -41,6 +41,7 @@
     "registration-eligibility:verify": "node scripts/verify-registration-eligibility.mjs",
     "registration-overrides-expiry:verify": "node scripts/verify-registration-overrides-expiry.mjs",
     "registration-capacity:verify": "node scripts/verify-registration-capacity.mjs",
+    "registration-add-drop:verify": "node scripts/verify-registration-add-drop.mjs",
     "attendance:verify": "node scripts/verify-attendance.mjs",
     "finance:verify": "node scripts/verify-finance.mjs",
     "fee-structures:verify": "node scripts/verify-fee-structures.mjs",

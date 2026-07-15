@@ -9,9 +9,12 @@ import { RegistrationOverridesController } from './registration-overrides.contro
 import { RegistrationOverridesService } from './registration-overrides.service';
 import { RegistrationCapacityController } from './registration-capacity.controller';
 import { RegistrationCapacityService } from './registration-capacity.service';
+import { RegistrationAddDropController } from './registration-add-drop.controller';
+import { RegistrationAddDropService } from './registration-add-drop.service';
 
 @Module({ controllers: [RegistrationController, RegistrationWindowsController,
-  RegistrationEligibilityController, RegistrationOverridesController, RegistrationCapacityController],
+  RegistrationEligibilityController, RegistrationOverridesController, RegistrationCapacityController,
+  RegistrationAddDropController],
   providers: [RegistrationService, RegistrationWindowsService, RegistrationEligibilityService,
-    RegistrationOverridesService, RegistrationCapacityService] })
+    RegistrationOverridesService, RegistrationCapacityService, RegistrationAddDropService] })
 export class RegistrationModule {}
