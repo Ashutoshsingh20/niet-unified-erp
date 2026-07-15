@@ -1,4 +1,7 @@
-import { IsBase64, IsIn, IsInt, IsObject, IsString, IsUUID, Matches, MaxLength, Min, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsBase64, IsBoolean, IsIn,
+  IsInt, IsObject, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min,
+  MinLength, ValidateNested } from 'class-validator';
 export class CreateApplicationDto {
   @IsString() @MinLength(1) @MaxLength(200) applicantSubjectId!: string;
   @Matches(/^[a-zA-Z0-9_.-]{2,100}$/) programmeKey!: string;
@@ -37,4 +40,45 @@ export class ConvertAdmissionDto {
   @Matches(/^[a-zA-Z0-9_.-]{1,100}$/) mappingVersion!: string;
   @IsObject() mappingTrace!: Record<string, unknown>;
   @IsInt() @Min(1) expectedOfferVersion!: number;
+}
+
+export class AdmissionChecklistItemDto {
+  @Matches(/^[a-z][a-z0-9_.-]{1,99}$/) requirementKey!: string;
+  @IsString() @MinLength(3) @MaxLength(150) title!: string;
+  @Matches(/^[a-z][a-z0-9_.-]{2,99}$/) documentTypeKey!: string;
+  @IsBoolean() required!: boolean;
+}
+
+export class CreateAdmissionChecklistDto {
+  @IsUUID() idempotencyKey!: string;
+  @IsString() @MinLength(3) @MaxLength(300) policyReference!: string;
+  @IsInt() @Min(1) expectedApplicationVersion!: number;
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(50)
+  @ArrayUnique((item: AdmissionChecklistItemDto) => item.requirementKey)
+  @ValidateNested({ each: true }) @Type(() => AdmissionChecklistItemDto)
+  items!: AdmissionChecklistItemDto[];
+}
+
+export class PublishAdmissionChecklistDto {
+  @IsInt() @Min(1) expectedChecklistVersion!: number;
+}
+
+export class AttachAdmissionDocumentDto {
+  @IsUUID() documentId!: string;
+}
+
+export class VerifyAdmissionDocumentDto {
+  @IsIn(['VERIFIED', 'REJECTED']) outcome!: 'VERIFIED' | 'REJECTED';
+  @Matches(/^[a-zA-Z0-9_.-]{2,100}$/) verificationEngine!: string;
+  @Matches(/^[a-zA-Z0-9_.-]{1,100}$/) verificationVersion!: string;
+  @IsObject() verificationTrace!: Record<string, unknown>;
+  @Matches(/^[a-f0-9]{64}$/) evidenceSha256!: string;
+  @IsString() @MinLength(3) @MaxLength(1000) reason!: string;
+}
+
+export class AdmissionDocumentExceptionsQueryDto {
+  @Matches(/^[a-z][a-z0-9_.-]{1,49}$/) scopeType!: string;
+  @IsString() @MinLength(1) @MaxLength(200) scopeId!: string;
+  @Type(() => Number) @IsInt() @Min(1) @Max(100) limit = 50;
+  @IsOptional() @IsUUID() after?: string;
 }

@@ -44,6 +44,12 @@ const environmentSchema = z.object({
     .transform((value) => value === 'true'),
   ADMISSION_DECISION_ENABLED: z.enum(['true', 'false']).default('false')
     .transform((value) => value === 'true'),
+  ADMISSION_DOCUMENT_CHECKLIST_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
+  ADMISSION_DOCUMENT_VERIFICATION_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
+  ADMISSION_DOCUMENT_ENFORCEMENT_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
   TIMETABLE_PUBLICATION_ENABLED: z.enum(['true', 'false']).default('false')
     .transform((value) => value === 'true'),
   STUDENT_CONVERSION_ENABLED: z.enum(['true', 'false']).default('false')

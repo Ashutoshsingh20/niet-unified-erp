@@ -1,11 +1,13 @@
-import { Body, Controller, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Principal } from '../../platform/auth/auth.types';
 import { CurrentPrincipal } from '../../platform/auth/principal.decorator';
 import { RequirePermission } from '../../platform/auth/require-permission.decorator';
-import { AdmissionsService } from './admissions.service';
-import { AcceptAdmissionOfferDto, ConvertAdmissionDto, CreateApplicationDto,
-  DecideApplicationDto, IssueAdmissionOfferDto, SubmitApplicationDto } from './admissions.dto';
+import { AdmissionsService, type AdmissionDocumentException } from './admissions.service';
+import { AcceptAdmissionOfferDto, AdmissionDocumentExceptionsQueryDto,
+  AttachAdmissionDocumentDto, ConvertAdmissionDto, CreateAdmissionChecklistDto,
+  CreateApplicationDto, DecideApplicationDto, IssueAdmissionOfferDto,
+  PublishAdmissionChecklistDto, SubmitApplicationDto, VerifyAdmissionDocumentDto } from './admissions.dto';
 @ApiTags('admissions') @ApiBearerAuth() @Controller({ path: 'admissions', version: '1' })
 export class AdmissionsController {
   constructor(private readonly admissions: AdmissionsService) {}
@@ -16,6 +18,41 @@ export class AdmissionsController {
   @Post('applications/:id/submission') @RequirePermission('admission.application.submit')
   submit(@Param('id', ParseUUIDPipe) id: string, @Body() input: SubmitApplicationDto,
     @CurrentPrincipal() actor: Principal): Promise<void> { return this.admissions.submit(id, input, actor); }
+  @Post('applications/:id/document-checklist')
+  @RequirePermission('admission.document-checklist.configure', { stepUpLevel: 2 })
+  createDocumentChecklist(@Param('id', ParseUUIDPipe) id: string,
+    @Body() input: CreateAdmissionChecklistDto,
+    @CurrentPrincipal() actor: Principal): Promise<{ id: string; replayed: boolean }> {
+    return this.admissions.createDocumentChecklist(id, input, actor);
+  }
+  @Post('document-checklists/:id/publication')
+  @RequirePermission('admission.document-checklist.publish', { stepUpLevel: 2 })
+  publishDocumentChecklist(@Param('id', ParseUUIDPipe) id: string,
+    @Body() input: PublishAdmissionChecklistDto,
+    @CurrentPrincipal() actor: Principal): Promise<{ replayed: boolean }> {
+    return this.admissions.publishDocumentChecklist(id, input, actor);
+  }
+  @Post('document-checklist-items/:id/attachments')
+  @RequirePermission('admission.document.attach')
+  attachDocument(@Param('id', ParseUUIDPipe) id: string,
+    @Body() input: AttachAdmissionDocumentDto,
+    @CurrentPrincipal() actor: Principal): Promise<{ id: string; replayed: boolean }> {
+    return this.admissions.attachDocument(id, input, actor);
+  }
+  @Post('document-attachments/:id/verification')
+  @RequirePermission('admission.document.verify', { stepUpLevel: 2 })
+  verifyDocument(@Param('id', ParseUUIDPipe) id: string,
+    @Body() input: VerifyAdmissionDocumentDto,
+    @CurrentPrincipal() actor: Principal): Promise<{ id: string; checklistComplete: boolean;
+      replayed: boolean }> {
+    return this.admissions.verifyDocument(id, input, actor);
+  }
+  @Get('document-exceptions') @RequirePermission('admission.document-exception.read')
+  listDocumentExceptions(@Query() input: AdmissionDocumentExceptionsQueryDto,
+    @CurrentPrincipal() actor: Principal): Promise<{ items: AdmissionDocumentException[];
+      nextCursor: string | null }> {
+    return this.admissions.listDocumentExceptions(input, actor);
+  }
   @Post('applications/:id/decision') @RequirePermission('admission.application.decide', { stepUpLevel: 2 })
   decide(@Param('id', ParseUUIDPipe) id: string, @Body() input: DecideApplicationDto,
     @CurrentPrincipal() actor: Principal): Promise<void> { return this.admissions.decide(id, input, actor); }

@@ -1,20 +1,45 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DataSource } from 'typeorm';
+import { DataSource, type EntityManager } from 'typeorm';
 import type { Environment } from '../../config/environment';
 import type { Principal } from '../../platform/auth/auth.types';
 import { PolicyService } from '../../platform/auth/policy.service';
 import { TransactionalEvidenceService } from '../../platform/evidence/transactional-evidence.service';
 import { StudentsService } from '../students/students.service';
-import type { AcceptAdmissionOfferDto, ConvertAdmissionDto, CreateApplicationDto,
-  DecideApplicationDto, IssueAdmissionOfferDto, SubmitApplicationDto } from './admissions.dto';
+import type { AcceptAdmissionOfferDto, AdmissionDocumentExceptionsQueryDto,
+  AttachAdmissionDocumentDto, ConvertAdmissionDto, CreateAdmissionChecklistDto,
+  CreateApplicationDto, DecideApplicationDto, IssueAdmissionOfferDto,
+  PublishAdmissionChecklistDto, SubmitApplicationDto, VerifyAdmissionDocumentDto } from './admissions.dto';
 interface ApplicationRow { id: string; applicant_subject_id: string; programme_key: string;
   payload_sha256: string; idempotency_key: string; scope_type: string; scope_id: string;
   status: string; version: number; encryption_key_reference: string; created_at: Date }
 interface OfferRow { id: string; application_id: string; status: string; version: number;
   applicant_subject_id: string; payload_sha256: string; scope_type: string; scope_id: string;
   application_created_at: Date }
+interface ChecklistRow { id: string; application_id: string; idempotency_key: string;
+  policy_reference: string; items_manifest_sha256: string; status: string; version: number;
+  configured_by: string; published_by: string | null; applicant_subject_id: string;
+  scope_type: string; scope_id: string }
+interface ChecklistItemRow { id: string; checklist_id: string; requirement_key: string;
+  title: string; document_type_key: string; required: boolean; checklist_status: string;
+  checklist_version: number; application_id: string; applicant_subject_id: string;
+  scope_type: string; scope_id: string }
+interface AttachmentRow { id: string; checklist_item_id: string; document_id: string;
+  attached_by: string; application_id: string; applicant_subject_id: string;
+  scope_type: string; scope_id: string }
+interface VerificationRow { id: string; outcome: string; verification_engine: string;
+  verification_version: string; verification_trace: Record<string, unknown>;
+  evidence_sha256: string; reason: string; verified_by: string }
+export interface AdmissionDocumentException {
+  readonly checklistItemId: string;
+  readonly applicationId: string;
+  readonly programmeKey: string;
+  readonly requirementKey: string;
+  readonly title: string;
+  readonly documentTypeKey: string;
+  readonly latestOutcome: 'REJECTED' | null;
+}
 @Injectable()
 export class AdmissionsService {
   constructor(private readonly dataSource: DataSource, private readonly policy: PolicyService,
@@ -66,6 +91,218 @@ export class AdmissionsService {
         payload: { admissionApplicationId: id } });
     });
   }
+
+  async createDocumentChecklist(applicationId: string, input: CreateAdmissionChecklistDto,
+    actor: Principal): Promise<{ id: string; replayed: boolean }> {
+    this.assertEnabled('ADMISSION_DOCUMENT_CHECKLIST_ENABLED',
+      'Admission document checklists are disabled pending NIET policy approval');
+    const manifest = checklistManifest(input);
+    return this.dataSource.transaction(async (manager) => {
+      const application = await this.lock(manager, applicationId);
+      this.policy.assertScope(actor, application.scope_type, application.scope_id);
+      const existing = await manager.query<readonly ChecklistRow[]>(`SELECT c.*,a.applicant_subject_id,
+        a.scope_type,a.scope_id FROM admissions.document_checklists c
+        JOIN admissions.applications a ON a.id=c.application_id
+        WHERE c.application_id=$1 OR c.idempotency_key=$2 FOR UPDATE OF c`,
+      [applicationId, input.idempotencyKey]);
+      if (existing[0] !== undefined) {
+        const row = existing[0];
+        if (row.application_id === applicationId && row.idempotency_key === input.idempotencyKey
+          && row.policy_reference === input.policyReference && row.items_manifest_sha256 === manifest) {
+          return { id: row.id, replayed: true };
+        }
+        throw new ConflictException('Admission checklist or idempotency key already has different content');
+      }
+      if (application.status !== 'SUBMITTED' || application.version !== input.expectedApplicationVersion) {
+        throw new ConflictException('Application is not the expected submitted version');
+      }
+      const typeKeys = [...new Set(input.items.map((item) => item.documentTypeKey))];
+      const activeTypes = await manager.query<readonly { type_key: string }[]>(
+        "SELECT type_key FROM documents.types WHERE status='ACTIVE' AND type_key=ANY($1::text[])", [typeKeys]);
+      if (activeTypes.length !== typeKeys.length) {
+        throw new ConflictException('Every checklist item must reference an active document type');
+      }
+      const id = randomUUID();
+      await manager.query(`INSERT INTO admissions.document_checklists
+        (id,application_id,idempotency_key,policy_reference,items_manifest_sha256,configured_by)
+        VALUES ($1,$2,$3,$4,$5,$6)`,
+      [id, applicationId, input.idempotencyKey, input.policyReference, manifest, actor.subjectId]);
+      for (const item of input.items) {
+        await manager.query(`INSERT INTO admissions.document_checklist_items
+          (id,checklist_id,requirement_key,title,document_type_key,required)
+          VALUES ($1,$2,$3,$4,$5,$6)`, [randomUUID(), id, item.requirementKey, item.title,
+          item.documentTypeKey, item.required]);
+      }
+      await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
+        action: 'admission.document-checklist.configured', resourceType: 'admission-document-checklist',
+        resourceId: id, details: { applicationId, policyReference: input.policyReference,
+          itemsManifestSha256: manifest, itemCount: input.items.length } });
+      return { id, replayed: false };
+    });
+  }
+
+  async publishDocumentChecklist(id: string, input: PublishAdmissionChecklistDto,
+    actor: Principal): Promise<{ replayed: boolean }> {
+    this.assertEnabled('ADMISSION_DOCUMENT_CHECKLIST_ENABLED',
+      'Admission document checklists are disabled pending NIET policy approval');
+    return this.dataSource.transaction(async (manager) => {
+      const checklist = await this.lockChecklist(manager, id);
+      this.policy.assertScope(actor, checklist.scope_type, checklist.scope_id);
+      if (checklist.status === 'PUBLISHED') {
+        if (checklist.version === input.expectedChecklistVersion + 1
+          && checklist.published_by === actor.subjectId) return { replayed: true };
+        throw new ConflictException('Admission checklist already has a different publication');
+      }
+      if (checklist.version !== input.expectedChecklistVersion) {
+        throw new ConflictException('Admission checklist is not the expected draft version');
+      }
+      if (checklist.configured_by === actor.subjectId) {
+        throw new ForbiddenException('Checklist maker cannot publish the checklist');
+      }
+      await manager.query(`UPDATE admissions.document_checklists SET status='PUBLISHED',
+        version=version+1,published_by=$2,published_at=clock_timestamp() WHERE id=$1`,
+      [id, actor.subjectId]);
+      await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
+        action: 'admission.document-checklist.published', resourceType: 'admission-document-checklist',
+        resourceId: id, details: { applicationId: checklist.application_id,
+          itemsManifestSha256: checklist.items_manifest_sha256 } });
+      await this.evidence.outbox(manager, { eventType: 'AdmissionDocumentChecklistPublished',
+        aggregateType: 'admission-document-checklist', aggregateId: id, classification: 'RESTRICTED',
+        payload: { admissionDocumentChecklistId: id, admissionApplicationId: checklist.application_id } });
+      return { replayed: false };
+    });
+  }
+
+  async attachDocument(itemId: string, input: AttachAdmissionDocumentDto,
+    actor: Principal): Promise<{ id: string; replayed: boolean }> {
+    this.assertEnabled('ADMISSION_DOCUMENT_CHECKLIST_ENABLED',
+      'Admission document checklists are disabled pending NIET policy approval');
+    return this.dataSource.transaction(async (manager) => {
+      const item = await this.lockChecklistItem(manager, itemId);
+      this.policy.assertScope(actor, item.scope_type, item.scope_id);
+      if (item.applicant_subject_id !== actor.subjectId) {
+        throw new ForbiddenException('Only the applicant can attach checklist documents');
+      }
+      if (item.checklist_status !== 'PUBLISHED') {
+        throw new ConflictException('Admission document checklist is not published');
+      }
+      const existing = await manager.query<readonly { id: string }[]>(`SELECT id
+        FROM admissions.document_attachments WHERE checklist_item_id=$1 AND document_id=$2`,
+      [itemId, input.documentId]);
+      if (existing[0] !== undefined) return { id: existing[0].id, replayed: true };
+      const satisfied = await manager.query<readonly { exists: boolean }[]>(`SELECT EXISTS (
+        SELECT 1 FROM admissions.document_attachments da JOIN admissions.document_verifications dv
+          ON dv.attachment_id=da.id AND dv.outcome='VERIFIED' WHERE da.checklist_item_id=$1) exists`, [itemId]);
+      if (satisfied[0]?.exists === true) throw new ConflictException('Checklist requirement is already verified');
+      const documents = await manager.query<readonly { owner_subject_id: string; scope_type: string;
+        scope_id: string; status: string; type_key: string }[]>(`SELECT r.owner_subject_id,r.scope_type,
+        r.scope_id,r.status,t.type_key FROM documents.records r JOIN documents.types t ON t.id=r.document_type_id
+        WHERE r.id=$1`, [input.documentId]);
+      const document = documents[0];
+      if (document?.status !== 'CLEAN' || document.owner_subject_id !== item.applicant_subject_id
+        || document.scope_type !== item.scope_type || document.scope_id !== item.scope_id
+        || document.type_key !== item.document_type_key) {
+        throw new ConflictException('Document does not match the clean, owned checklist requirement');
+      }
+      const id = randomUUID();
+      await manager.query(`INSERT INTO admissions.document_attachments
+        (id,checklist_item_id,document_id,attached_by) VALUES ($1,$2,$3,$4)`,
+      [id, itemId, input.documentId, actor.subjectId]);
+      await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
+        action: 'admission.document.attached', resourceType: 'admission-document-attachment',
+        resourceId: id, details: { applicationId: item.application_id, checklistItemId: itemId,
+          documentId: input.documentId } });
+      await this.evidence.outbox(manager, { eventType: 'AdmissionDocumentAttached',
+        aggregateType: 'admission-document-attachment', aggregateId: id, classification: 'RESTRICTED',
+        payload: { admissionDocumentAttachmentId: id, admissionApplicationId: item.application_id } });
+      return { id, replayed: false };
+    });
+  }
+
+  async verifyDocument(attachmentId: string, input: VerifyAdmissionDocumentDto,
+    actor: Principal): Promise<{ id: string; checklistComplete: boolean; replayed: boolean }> {
+    this.assertEnabled('ADMISSION_DOCUMENT_VERIFICATION_ENABLED',
+      'Admission document verification is disabled pending NIET policy approval');
+    return this.dataSource.transaction(async (manager) => {
+      const attachment = await this.lockAttachment(manager, attachmentId);
+      this.policy.assertScope(actor, attachment.scope_type, attachment.scope_id);
+      if (attachment.attached_by === actor.subjectId) {
+        throw new ForbiddenException('Document submitter cannot verify the same attachment');
+      }
+      const existing = await manager.query<readonly VerificationRow[]>(
+        'SELECT * FROM admissions.document_verifications WHERE attachment_id=$1', [attachmentId]);
+      if (existing[0] !== undefined) {
+        const row = existing[0];
+        if (row.outcome === input.outcome && row.verification_engine === input.verificationEngine
+          && row.verification_version === input.verificationVersion
+          && canonicalJson(row.verification_trace) === canonicalJson(input.verificationTrace)
+          && row.evidence_sha256 === input.evidenceSha256 && row.reason === input.reason
+          && row.verified_by === actor.subjectId) {
+          return { id: row.id, checklistComplete: await this.checklistComplete(manager,
+            attachment.application_id), replayed: true };
+        }
+        throw new ConflictException('Attachment already has different verification evidence');
+      }
+      const id = randomUUID();
+      await manager.query(`INSERT INTO admissions.document_verifications
+        (id,attachment_id,outcome,verification_engine,verification_version,verification_trace,
+         evidence_sha256,reason,verified_by) VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)`,
+      [id, attachmentId, input.outcome, input.verificationEngine, input.verificationVersion,
+        JSON.stringify(input.verificationTrace), input.evidenceSha256, input.reason, actor.subjectId]);
+      const checklistComplete = await this.checklistComplete(manager, attachment.application_id);
+      await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
+        action: `admission.document.${input.outcome.toLowerCase()}`,
+        resourceType: 'admission-document-verification', resourceId: id,
+        details: { applicationId: attachment.application_id, attachmentId,
+          verificationEngine: input.verificationEngine, verificationVersion: input.verificationVersion,
+          evidenceSha256: input.evidenceSha256, checklistComplete } });
+      await this.evidence.outbox(manager, { eventType: input.outcome === 'VERIFIED'
+        ? 'AdmissionDocumentVerified' : 'AdmissionDocumentRejected',
+        aggregateType: 'admission-document-verification', aggregateId: id, classification: 'RESTRICTED',
+        payload: { admissionDocumentVerificationId: id,
+          admissionApplicationId: attachment.application_id } });
+      const completionRows = checklistComplete && input.outcome === 'VERIFIED'
+        ? await manager.query<readonly { emitted: boolean }[]>(`SELECT EXISTS (
+            SELECT 1 FROM platform.outbox_events
+            WHERE aggregate_type='admission-application' AND aggregate_id=$1
+              AND event_type='AdmissionDocumentsComplete') emitted`, [attachment.application_id])
+        : [];
+      if (checklistComplete && input.outcome === 'VERIFIED' && !completionRows[0]?.emitted) {
+        await this.evidence.outbox(manager, { eventType: 'AdmissionDocumentsComplete',
+          aggregateType: 'admission-application', aggregateId: attachment.application_id,
+          classification: 'RESTRICTED', payload: { admissionApplicationId: attachment.application_id } });
+      }
+      return { id, checklistComplete, replayed: false };
+    });
+  }
+
+  async listDocumentExceptions(input: AdmissionDocumentExceptionsQueryDto,
+    actor: Principal): Promise<{ items: AdmissionDocumentException[]; nextCursor: string | null }> {
+    this.policy.assertScope(actor, input.scopeType, input.scopeId);
+    const rows = await this.dataSource.query<readonly { checklist_item_id: string;
+      application_id: string; programme_key: string; requirement_key: string; title: string;
+      document_type_key: string; latest_outcome: 'REJECTED' | null }[]>(`SELECT i.id checklist_item_id,
+      a.id application_id,a.programme_key,i.requirement_key,i.title,i.document_type_key,
+      latest.outcome latest_outcome FROM admissions.document_checklist_items i
+      JOIN admissions.document_checklists c ON c.id=i.checklist_id AND c.status='PUBLISHED'
+      JOIN admissions.applications a ON a.id=c.application_id
+      LEFT JOIN LATERAL (SELECT dv.outcome FROM admissions.document_attachments da
+        LEFT JOIN admissions.document_verifications dv ON dv.attachment_id=da.id
+        WHERE da.checklist_item_id=i.id ORDER BY da.attached_at DESC LIMIT 1) latest ON true
+      WHERE i.required AND a.scope_type=$1 AND a.scope_id=$2 AND ($3::uuid IS NULL OR i.id>$3)
+        AND NOT EXISTS (SELECT 1 FROM admissions.document_attachments da
+          JOIN admissions.document_verifications dv ON dv.attachment_id=da.id AND dv.outcome='VERIFIED'
+          WHERE da.checklist_item_id=i.id)
+      ORDER BY i.id LIMIT $4`, [input.scopeType, input.scopeId, input.after ?? null, input.limit + 1]);
+    const hasNext = rows.length > input.limit;
+    const page = rows.slice(0, input.limit);
+    return { items: page.map((row) => ({ checklistItemId: row.checklist_item_id,
+      applicationId: row.application_id, programmeKey: row.programme_key,
+      requirementKey: row.requirement_key, title: row.title,
+      documentTypeKey: row.document_type_key, latestOutcome: row.latest_outcome })),
+    nextCursor: hasNext ? page.at(-1)?.checklist_item_id ?? null : null };
+  }
+
   async decide(id: string, input: DecideApplicationDto, actor: Principal): Promise<void> {
     if (!this.config.get('ADMISSION_DECISION_ENABLED', { infer: true })) {
       throw new ForbiddenException('Admission decisions are disabled pending NIET policy approval');
@@ -75,6 +312,10 @@ export class AdmissionsService {
       this.policy.assertScope(actor, application.scope_type, application.scope_id);
       if (application.status !== 'SUBMITTED' || application.version !== input.expectedVersion) {
         throw new ConflictException('Application is not the expected submitted version');
+      }
+      if (input.outcome === 'OFFERED'
+        && this.config.get('ADMISSION_DOCUMENT_ENFORCEMENT_ENABLED', { infer: true })) {
+        await this.assertRequiredDocumentsVerified(manager, id);
       }
       await manager.query(`INSERT INTO admissions.decisions
         (id,application_id,outcome,evaluation_engine,evaluation_version,regulation_reference,
@@ -187,13 +428,65 @@ export class AdmissionsService {
       return { studentId: student.id, replayed: false };
     });
   }
-  private async lock(manager: { query: DataSource['query'] }, id: string): Promise<ApplicationRow> {
+
+  private assertEnabled(key: keyof Pick<Environment, 'ADMISSION_DOCUMENT_CHECKLIST_ENABLED'
+    | 'ADMISSION_DOCUMENT_VERIFICATION_ENABLED'>, message: string): void {
+    if (!this.config.get(key, { infer: true })) throw new ForbiddenException(message);
+  }
+
+  private async lockChecklist(manager: EntityManager, id: string): Promise<ChecklistRow> {
+    const rows = await manager.query<readonly ChecklistRow[]>(`SELECT c.*,a.applicant_subject_id,
+      a.scope_type,a.scope_id FROM admissions.document_checklists c
+      JOIN admissions.applications a ON a.id=c.application_id WHERE c.id=$1 FOR UPDATE OF c,a`, [id]);
+    if (rows[0] === undefined) throw new NotFoundException('Admission document checklist not found');
+    return rows[0];
+  }
+
+  private async lockChecklistItem(manager: EntityManager, id: string): Promise<ChecklistItemRow> {
+    const rows = await manager.query<readonly ChecklistItemRow[]>(`SELECT i.*,c.status checklist_status,
+      c.version checklist_version,c.application_id,a.applicant_subject_id,a.scope_type,a.scope_id
+      FROM admissions.document_checklist_items i JOIN admissions.document_checklists c ON c.id=i.checklist_id
+      JOIN admissions.applications a ON a.id=c.application_id WHERE i.id=$1 FOR UPDATE OF c,a`, [id]);
+    if (rows[0] === undefined) throw new NotFoundException('Admission checklist item not found');
+    return rows[0];
+  }
+
+  private async lockAttachment(manager: EntityManager, id: string): Promise<AttachmentRow> {
+    const rows = await manager.query<readonly AttachmentRow[]>(`SELECT da.*,c.application_id,
+      a.applicant_subject_id,a.scope_type,a.scope_id FROM admissions.document_attachments da
+      JOIN admissions.document_checklist_items i ON i.id=da.checklist_item_id
+      JOIN admissions.document_checklists c ON c.id=i.checklist_id
+      JOIN admissions.applications a ON a.id=c.application_id WHERE da.id=$1 FOR UPDATE OF c,a`, [id]);
+    if (rows[0] === undefined) throw new NotFoundException('Admission document attachment not found');
+    return rows[0];
+  }
+
+  private async checklistComplete(manager: EntityManager, applicationId: string): Promise<boolean> {
+    const rows = await manager.query<readonly { complete: boolean }[]>(`SELECT
+      EXISTS (SELECT 1 FROM admissions.document_checklists
+        WHERE application_id=$1 AND status='PUBLISHED')
+      AND NOT EXISTS (SELECT 1 FROM admissions.document_checklist_items i
+        JOIN admissions.document_checklists c ON c.id=i.checklist_id
+        WHERE c.application_id=$1 AND c.status='PUBLISHED' AND i.required
+          AND NOT EXISTS (SELECT 1 FROM admissions.document_attachments da
+            JOIN admissions.document_verifications dv ON dv.attachment_id=da.id AND dv.outcome='VERIFIED'
+            WHERE da.checklist_item_id=i.id)) complete`, [applicationId]);
+    return rows[0]?.complete === true;
+  }
+
+  private async assertRequiredDocumentsVerified(manager: EntityManager, applicationId: string): Promise<void> {
+    if (!await this.checklistComplete(manager, applicationId)) {
+      throw new ConflictException('Required admission documents are not completely verified');
+    }
+  }
+
+  private async lock(manager: EntityManager, id: string): Promise<ApplicationRow> {
     const rows = await manager.query<readonly ApplicationRow[]>(
       'SELECT * FROM admissions.applications WHERE id=$1 FOR UPDATE', [id]);
     if (rows[0] === undefined) throw new NotFoundException('Admission application not found');
     return rows[0];
   }
-  private async lockOffer(manager: { query: DataSource['query'] }, id: string): Promise<OfferRow> {
+  private async lockOffer(manager: EntityManager, id: string): Promise<OfferRow> {
     const rows = await manager.query<readonly OfferRow[]>(`SELECT o.*,a.applicant_subject_id,
       a.payload_sha256,a.scope_type,a.scope_id,a.created_at application_created_at
       FROM admissions.offers o JOIN admissions.applications a ON a.id=o.application_id
@@ -201,7 +494,7 @@ export class AdmissionsService {
     if (rows[0] === undefined) throw new NotFoundException('Admission offer not found');
     return rows[0];
   }
-  private async replay(manager: { query: DataSource['query'] }, input: CreateApplicationDto): Promise<{ id: string; replayed: boolean }> {
+  private async replay(manager: EntityManager, input: CreateApplicationDto): Promise<{ id: string; replayed: boolean }> {
     const rows = await manager.query<readonly ApplicationRow[]>(
       'SELECT * FROM admissions.applications WHERE idempotency_key=$1', [input.idempotencyKey]);
     const row = rows[0];
@@ -210,6 +503,24 @@ export class AdmissionsService {
       && row.scope_type === input.scopeType && row.scope_id === input.scopeId) return { id: row.id, replayed: true };
     throw new ConflictException('Admission idempotency key already has different content');
   }
+}
+
+function checklistManifest(input: CreateAdmissionChecklistDto): string {
+  const items = [...input.items].sort((left, right) => left.requirementKey.localeCompare(right.requirementKey));
+  return createHash('sha256').update(canonicalJson(items)).digest('hex');
+}
+
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(canonicalize(value)) ?? 'null';
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => canonicalize(item));
+  if (typeof value === 'object' && value !== null) {
+    return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => [key, canonicalize(item)]));
+  }
+  return value;
 }
 function throwUnique(error: unknown, message: string): never {
   if (typeof error === 'object' && error !== null && 'code' in error && error.code === '23505') {

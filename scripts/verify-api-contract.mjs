@@ -48,6 +48,11 @@ try {
     '/api/v1/migration/batches/{id}/application',
     '/api/v1/admissions/applications/{id}/submission',
     '/api/v1/admissions/applications/{id}/decision',
+    '/api/v1/admissions/applications/{id}/document-checklist',
+    '/api/v1/admissions/document-checklists/{id}/publication',
+    '/api/v1/admissions/document-checklist-items/{id}/attachments',
+    '/api/v1/admissions/document-attachments/{id}/verification',
+    '/api/v1/admissions/document-exceptions',
     '/api/v1/timetable/meetings/{id}/publication',
     '/api/v1/admissions/offers/{id}/acceptance',
     '/api/v1/admissions/offers/{id}/conversion',
@@ -79,9 +84,13 @@ try {
   }
   process.stdout.write('Versioned OpenAPI paths, request schemas, and bearer declarations verified\n');
 } finally {
-  child.kill('SIGTERM');
   await new Promise((resolve) => {
+    if (child.exitCode !== null) {
+      resolve();
+      return;
+    }
     child.once('exit', resolve);
+    child.kill('SIGTERM');
     setTimeout(resolve, 5_000).unref();
   });
 }
