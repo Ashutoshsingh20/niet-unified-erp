@@ -3,13 +3,15 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Principal } from '../../platform/auth/auth.types';
 import { CurrentPrincipal } from '../../platform/auth/principal.decorator';
 import { RequirePermission } from '../../platform/auth/require-permission.decorator';
-import { AdmissionsService, type AdmissionDocumentException,
-  type AdmissionOfferException } from './admissions.service';
+import { AdmissionsService, type AdmissionCancellationException,
+  type AdmissionDocumentException, type AdmissionOfferException } from './admissions.service';
 import { AcceptAdmissionOfferDto, AdmissionDocumentExceptionsQueryDto,
-  AdmissionOfferExceptionsQueryDto,
+  AdmissionCancellationExceptionsQueryDto, AdmissionOfferExceptionsQueryDto,
+  AssessAdmissionCancellationDto,
   AttachAdmissionDocumentDto, ConvertAdmissionDto, CreateAdmissionChecklistDto,
   CreateApplicationDto, DecideApplicationDto, IssueAdmissionOfferDto,
-  PublishAdmissionChecklistDto, SubmitApplicationDto, TransitionAdmissionOfferDto,
+  PublishAdmissionChecklistDto, RequestAdmissionCancellationDto, SubmitApplicationDto,
+  TransitionAdmissionOfferDto,
   VerifyAdmissionDocumentDto } from './admissions.dto';
 @ApiTags('admissions') @ApiBearerAuth() @Controller({ path: 'admissions', version: '1' })
 export class AdmissionsController {
@@ -89,6 +91,26 @@ export class AdmissionsController {
     @CurrentPrincipal() actor: Principal): Promise<{ items: AdmissionOfferException[];
       nextCursor: string | null }> {
     return this.admissions.listOfferExceptions(input, actor);
+  }
+  @Post('offers/:id/cancellation-requests') @RequirePermission('admission.cancellation.request')
+  requestCancellation(@Param('id', ParseUUIDPipe) id: string,
+    @Body() input: RequestAdmissionCancellationDto,
+    @CurrentPrincipal() actor: Principal): Promise<{ id: string; replayed: boolean }> {
+    return this.admissions.requestCancellation(id, input, actor);
+  }
+  @Post('cancellation-requests/:id/assessment')
+  @RequirePermission('admission.cancellation.assess', { stepUpLevel: 2 })
+  assessCancellation(@Param('id', ParseUUIDPipe) id: string,
+    @Body() input: AssessAdmissionCancellationDto,
+    @CurrentPrincipal() actor: Principal): Promise<{ status: 'REJECTED' | 'PENDING_FINANCE' | 'CANCELLED';
+      replayed: boolean }> {
+    return this.admissions.assessCancellation(id, input, actor);
+  }
+  @Get('cancellation-exceptions') @RequirePermission('admission.cancellation-exception.read')
+  listCancellationExceptions(@Query() input: AdmissionCancellationExceptionsQueryDto,
+    @CurrentPrincipal() actor: Principal): Promise<{ items: AdmissionCancellationException[];
+      nextCursor: string | null }> {
+    return this.admissions.listCancellationExceptions(input, actor);
   }
   @Post('offers/:id/conversion') @RequirePermission('admission.conversion.execute', { stepUpLevel: 2 })
   convert(@Param('id', ParseUUIDPipe) id: string, @Body() input: ConvertAdmissionDto,

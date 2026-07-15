@@ -8,10 +8,12 @@ import { PolicyService } from '../../platform/auth/policy.service';
 import { TransactionalEvidenceService } from '../../platform/evidence/transactional-evidence.service';
 import { StudentsService } from '../students/students.service';
 import type { AcceptAdmissionOfferDto, AdmissionDocumentExceptionsQueryDto,
-  AdmissionOfferExceptionsQueryDto,
+  AdmissionCancellationExceptionsQueryDto, AdmissionOfferExceptionsQueryDto,
+  AssessAdmissionCancellationDto,
   AttachAdmissionDocumentDto, ConvertAdmissionDto, CreateAdmissionChecklistDto,
   CreateApplicationDto, DecideApplicationDto, IssueAdmissionOfferDto,
-  PublishAdmissionChecklistDto, SubmitApplicationDto, TransitionAdmissionOfferDto,
+  PublishAdmissionChecklistDto, RequestAdmissionCancellationDto, SubmitApplicationDto,
+  TransitionAdmissionOfferDto,
   VerifyAdmissionDocumentDto } from './admissions.dto';
 interface ApplicationRow { id: string; applicant_subject_id: string; programme_key: string;
   payload_sha256: string; idempotency_key: string; scope_type: string; scope_id: string;
@@ -34,6 +36,12 @@ interface AttachmentRow { id: string; checklist_item_id: string; document_id: st
 interface VerificationRow { id: string; outcome: string; verification_engine: string;
   verification_version: string; verification_trace: Record<string, unknown>;
   evidence_sha256: string; reason: string; verified_by: string }
+interface CancellationRequestRow { id: string; offer_id: string; application_id: string;
+  idempotency_key: string; reason: string; status: string; version: number; requested_by: string;
+  applicant_subject_id: string; scope_type: string; scope_id: string }
+interface CancellationAssessmentRow { id: string; decision: string; financial_disposition: string;
+  evaluation_engine: string; evaluation_version: string; policy_reference: string;
+  evaluation_trace: Record<string, unknown>; reason: string; assessed_by: string }
 export interface AdmissionDocumentException {
   readonly checklistItemId: string;
   readonly applicationId: string;
@@ -50,6 +58,16 @@ export interface AdmissionOfferException {
   readonly offerReference: string;
   readonly expiresAt: string;
   readonly policyReference: string;
+}
+export interface AdmissionCancellationException {
+  readonly cancellationRequestId: string;
+  readonly offerId: string;
+  readonly applicationId: string;
+  readonly programmeKey: string;
+  readonly offerReference: string;
+  readonly policyReference: string;
+  readonly evaluationEngine: string;
+  readonly evaluationVersion: string;
 }
 @Injectable()
 export class AdmissionsService {
@@ -436,6 +454,143 @@ export class AdmissionsService {
     nextCursor: hasNext ? page.at(-1)?.offer_id ?? null : null };
   }
 
+  async requestCancellation(offerId: string, input: RequestAdmissionCancellationDto,
+    actor: Principal): Promise<{ id: string; replayed: boolean }> {
+    this.assertEnabled('ADMISSION_CANCELLATION_ENABLED',
+      'Admission cancellation is disabled pending NIET policy approval');
+    return this.dataSource.transaction(async (manager) => {
+      const offer = await this.lockOffer(manager, offerId);
+      this.policy.assertScope(actor, offer.scope_type, offer.scope_id);
+      if (offer.applicant_subject_id !== actor.subjectId) {
+        throw new ForbiddenException('Only the applicant can request admission cancellation');
+      }
+      const existing = await manager.query<readonly CancellationRequestRow[]>(`SELECT r.*,
+        a.applicant_subject_id,a.scope_type,a.scope_id FROM admissions.cancellation_requests r
+        JOIN admissions.applications a ON a.id=r.application_id
+        WHERE r.offer_id=$1 OR r.idempotency_key=$2 FOR UPDATE OF r`, [offerId, input.idempotencyKey]);
+      if (existing[0] !== undefined) {
+        const row = existing[0];
+        if (row.offer_id === offerId && row.idempotency_key === input.idempotencyKey
+          && row.reason === input.reason && row.requested_by === actor.subjectId) {
+          return { id: row.id, replayed: true };
+        }
+        throw new ConflictException('Cancellation request or idempotency key already has different content');
+      }
+      if (offer.status !== 'ACCEPTED' || offer.version !== input.expectedOfferVersion) {
+        throw new ConflictException('Admission offer is not the expected accepted version');
+      }
+      const converted = await manager.query<readonly { exists: boolean }[]>(
+        'SELECT EXISTS (SELECT 1 FROM admissions.conversions WHERE offer_id=$1) exists', [offerId]);
+      if (converted[0]?.exists === true) {
+        throw new ConflictException('Converted admissions require the governed student withdrawal workflow');
+      }
+      const id = randomUUID();
+      await manager.query(`INSERT INTO admissions.cancellation_requests
+        (id,offer_id,application_id,idempotency_key,reason,requested_by)
+        VALUES ($1,$2,$3,$4,$5,$6)`, [id, offerId, offer.application_id,
+        input.idempotencyKey, input.reason, actor.subjectId]);
+      await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
+        action: 'admission.cancellation.requested', resourceType: 'admission-cancellation-request',
+        resourceId: id, details: { applicationId: offer.application_id, offerId } });
+      await this.evidence.outbox(manager, { eventType: 'AdmissionCancellationRequested',
+        aggregateType: 'admission-cancellation-request', aggregateId: id, classification: 'RESTRICTED',
+        payload: { admissionCancellationRequestId: id, admissionApplicationId: offer.application_id } });
+      return { id, replayed: false };
+    });
+  }
+
+  async assessCancellation(id: string, input: AssessAdmissionCancellationDto,
+    actor: Principal): Promise<{ status: 'REJECTED' | 'PENDING_FINANCE' | 'CANCELLED'; replayed: boolean }> {
+    this.assertEnabled('ADMISSION_CANCELLATION_ENABLED',
+      'Admission cancellation is disabled pending NIET policy approval');
+    const validDisposition = (input.decision === 'REJECTED' && input.financialDisposition === 'NOT_APPLICABLE')
+      || (input.decision === 'APPROVED'
+        && ['NO_REFUND_REQUIRED', 'FINANCE_REVIEW_REQUIRED'].includes(input.financialDisposition));
+    if (!validDisposition) throw new ConflictException('Cancellation decision and financial disposition conflict');
+    return this.dataSource.transaction(async (manager) => {
+      const rows = await manager.query<readonly CancellationRequestRow[]>(`SELECT r.*,
+        a.applicant_subject_id,a.scope_type,a.scope_id FROM admissions.cancellation_requests r
+        JOIN admissions.offers o ON o.id=r.offer_id JOIN admissions.applications a ON a.id=r.application_id
+        WHERE r.id=$1 FOR UPDATE OF r,o,a`, [id]);
+      const request = rows[0];
+      if (request === undefined) throw new NotFoundException('Admission cancellation request not found');
+      this.policy.assertScope(actor, request.scope_type, request.scope_id);
+      const existing = await manager.query<readonly CancellationAssessmentRow[]>(
+        'SELECT * FROM admissions.cancellation_assessments WHERE request_id=$1', [id]);
+      if (existing[0] !== undefined) {
+        const assessment = existing[0];
+        if (assessment.decision === input.decision
+          && assessment.financial_disposition === input.financialDisposition
+          && assessment.evaluation_engine === input.evaluationEngine
+          && assessment.evaluation_version === input.evaluationVersion
+          && assessment.policy_reference === input.policyReference
+          && canonicalJson(assessment.evaluation_trace) === canonicalJson(input.evaluationTrace)
+          && assessment.reason === input.reason && assessment.assessed_by === actor.subjectId) {
+          return { status: request.status as 'REJECTED' | 'PENDING_FINANCE' | 'CANCELLED', replayed: true };
+        }
+        throw new ConflictException('Cancellation request already has a different assessment');
+      }
+      if (request.requested_by === actor.subjectId) {
+        throw new ForbiddenException('Cancellation requester cannot assess the same request');
+      }
+      if (request.status !== 'REQUESTED' || request.version !== input.expectedRequestVersion) {
+        throw new ConflictException('Cancellation request is not the expected pending version');
+      }
+      const assessmentId = randomUUID();
+      await manager.query(`INSERT INTO admissions.cancellation_assessments
+        (id,request_id,decision,financial_disposition,evaluation_engine,evaluation_version,
+         policy_reference,evaluation_trace,reason,assessed_by)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10)`, [assessmentId, id, input.decision,
+        input.financialDisposition, input.evaluationEngine, input.evaluationVersion,
+        input.policyReference, JSON.stringify(input.evaluationTrace), input.reason, actor.subjectId]);
+      const status = input.decision === 'REJECTED' ? 'REJECTED'
+        : input.financialDisposition === 'NO_REFUND_REQUIRED' ? 'CANCELLED' : 'PENDING_FINANCE';
+      await manager.query('UPDATE admissions.cancellation_requests SET status=$2,version=version+1 WHERE id=$1',
+        [id, status]);
+      if (status === 'CANCELLED') {
+        await manager.query("UPDATE admissions.offers SET status='CANCELLED',version=version+1 WHERE id=$1",
+          [request.offer_id]);
+        await manager.query(`UPDATE admissions.applications SET status='WITHDRAWN',version=version+1
+          WHERE id=$1 AND status='OFFERED'`, [request.application_id]);
+      }
+      await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
+        action: `admission.cancellation.${status.toLowerCase()}`,
+        resourceType: 'admission-cancellation-request', resourceId: id,
+        details: { assessmentId, applicationId: request.application_id,
+          decision: input.decision, financialDisposition: input.financialDisposition,
+          evaluationEngine: input.evaluationEngine, evaluationVersion: input.evaluationVersion,
+          policyReference: input.policyReference } });
+      const eventType = status === 'REJECTED' ? 'AdmissionCancellationRejected'
+        : status === 'CANCELLED' ? 'AdmissionCancelled' : 'AdmissionCancellationFinanceReviewRequired';
+      await this.evidence.outbox(manager, { eventType,
+        aggregateType: 'admission-cancellation-request', aggregateId: id, classification: 'RESTRICTED',
+        payload: { admissionCancellationRequestId: id, admissionApplicationId: request.application_id } });
+      return { status, replayed: false };
+    });
+  }
+
+  async listCancellationExceptions(input: AdmissionCancellationExceptionsQueryDto,
+    actor: Principal): Promise<{ items: AdmissionCancellationException[]; nextCursor: string | null }> {
+    this.policy.assertScope(actor, input.scopeType, input.scopeId);
+    const rows = await this.dataSource.query<readonly { request_id: string; offer_id: string;
+      application_id: string; programme_key: string; offer_reference: string;
+      policy_reference: string; evaluation_engine: string; evaluation_version: string }[]>(`SELECT
+      r.id request_id,o.id offer_id,a.id application_id,a.programme_key,o.offer_reference,
+      ca.policy_reference,ca.evaluation_engine,ca.evaluation_version
+      FROM admissions.cancellation_requests r JOIN admissions.cancellation_assessments ca ON ca.request_id=r.id
+      JOIN admissions.offers o ON o.id=r.offer_id JOIN admissions.applications a ON a.id=r.application_id
+      WHERE r.status='PENDING_FINANCE' AND a.scope_type=$1 AND a.scope_id=$2
+        AND ($3::uuid IS NULL OR r.id>$3) ORDER BY r.id LIMIT $4`,
+    [input.scopeType, input.scopeId, input.after ?? null, input.limit + 1]);
+    const hasNext = rows.length > input.limit;
+    const page = rows.slice(0, input.limit);
+    return { items: page.map((row) => ({ cancellationRequestId: row.request_id,
+      offerId: row.offer_id, applicationId: row.application_id, programmeKey: row.programme_key,
+      offerReference: row.offer_reference, policyReference: row.policy_reference,
+      evaluationEngine: row.evaluation_engine, evaluationVersion: row.evaluation_version })),
+    nextCursor: hasNext ? page.at(-1)?.request_id ?? null : null };
+  }
+
   async convert(id: string, input: ConvertAdmissionDto,
     actor: Principal): Promise<{ studentId: string; replayed: boolean }> {
     if (!this.config.get('STUDENT_CONVERSION_ENABLED', { infer: true })) {
@@ -459,6 +614,12 @@ export class AdmissionsService {
       }
       if (offer.status !== 'ACCEPTED' || offer.version !== input.expectedOfferVersion) {
         throw new ConflictException('Admission offer is not the expected accepted version');
+      }
+      const cancellation = await manager.query<readonly { exists: boolean }[]>(`SELECT EXISTS (
+        SELECT 1 FROM admissions.cancellation_requests
+        WHERE offer_id=$1 AND status IN ('REQUESTED','PENDING_FINANCE')) exists`, [id]);
+      if (cancellation[0]?.exists === true) {
+        throw new ConflictException('Admission conversion is blocked by an active cancellation request');
       }
       const student = await this.students.createInTransaction(manager, {
         subjectId: offer.applicant_subject_id, displayName: input.displayName,
@@ -487,7 +648,8 @@ export class AdmissionsService {
   }
 
   private assertEnabled(key: keyof Pick<Environment, 'ADMISSION_DOCUMENT_CHECKLIST_ENABLED'
-    | 'ADMISSION_DOCUMENT_VERIFICATION_ENABLED' | 'ADMISSION_OFFER_LIFECYCLE_ENABLED'>,
+    | 'ADMISSION_DOCUMENT_VERIFICATION_ENABLED' | 'ADMISSION_OFFER_LIFECYCLE_ENABLED'
+    | 'ADMISSION_CANCELLATION_ENABLED'>,
   message: string): void {
     if (!this.config.get(key, { infer: true })) throw new ForbiddenException(message);
   }

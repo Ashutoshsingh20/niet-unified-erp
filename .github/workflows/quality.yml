@@ -66,6 +66,7 @@ jobs:
       - run: npm run migration:verify
       - run: npm run admissions:verify
       - run: npm run admission-offers:verify
+      - run: npm run admission-cancellations:verify
       - run: npm run timetable:verify
       - run: npm run student-core:verify
       - run: npm run programmes:verify
