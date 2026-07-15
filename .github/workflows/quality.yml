@@ -63,6 +63,7 @@ jobs:
       - run: npm run registration:verify
       - run: npm run attendance:verify
       - run: npm run finance:verify
+      - run: npm run fee-structures:verify
       - run: npm run migration:verify
       - run: npm run admissions:verify
       - run: npm run admission-offers:verify

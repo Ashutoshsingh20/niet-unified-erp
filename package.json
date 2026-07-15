@@ -39,6 +39,7 @@
     "registration:verify": "node scripts/verify-registration.mjs",
     "attendance:verify": "node scripts/verify-attendance.mjs",
     "finance:verify": "node scripts/verify-finance.mjs",
+    "fee-structures:verify": "node scripts/verify-fee-structures.mjs",
     "migration:verify": "node scripts/verify-migration.mjs",
     "admissions:verify": "node scripts/verify-admissions.mjs",
     "admission-offers:verify": "node scripts/verify-admission-offers.mjs",

@@ -40,6 +40,10 @@ const environmentSchema = z.object({
     .transform((value) => value === 'true'),
   FINANCE_REFUND_ENABLED: z.enum(['true', 'false']).default('false')
     .transform((value) => value === 'true'),
+  FINANCE_FEE_STRUCTURE_PUBLICATION_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
+  FINANCE_GOVERNED_DEMAND_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
   MIGRATION_APPLICATION_ENABLED: z.enum(['true', 'false']).default('false')
     .transform((value) => value === 'true'),
   ADMISSION_DECISION_ENABLED: z.enum(['true', 'false']).default('false')
