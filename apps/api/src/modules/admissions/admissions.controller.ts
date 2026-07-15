@@ -11,6 +11,7 @@ import { AcceptAdmissionOfferDto, AdmissionDocumentExceptionsQueryDto,
   AttachAdmissionDocumentDto, ConvertAdmissionDto, CreateAdmissionChecklistDto,
   CreateApplicationDto, DecideApplicationDto, IssueAdmissionOfferDto,
   PublishAdmissionChecklistDto, RequestAdmissionCancellationDto, SubmitApplicationDto,
+  ResolveAdmissionCancellationFinanceDto,
   TransitionAdmissionOfferDto,
   VerifyAdmissionDocumentDto } from './admissions.dto';
 @ApiTags('admissions') @ApiBearerAuth() @Controller({ path: 'admissions', version: '1' })
@@ -111,6 +112,14 @@ export class AdmissionsController {
     @CurrentPrincipal() actor: Principal): Promise<{ items: AdmissionCancellationException[];
       nextCursor: string | null }> {
     return this.admissions.listCancellationExceptions(input, actor);
+  }
+  @Post('cancellation-requests/:id/finance-resolution')
+  @RequirePermission('admission.cancellation-finance.resolve', { stepUpLevel: 2 })
+  resolveCancellationFinance(@Param('id', ParseUUIDPipe) id: string,
+    @Body() input: ResolveAdmissionCancellationFinanceDto,
+    @CurrentPrincipal() actor: Principal): Promise<{ status: 'CANCELLED' | 'REJECTED';
+      replayed: boolean }> {
+    return this.admissions.resolveCancellationFinance(id, input, actor);
   }
   @Post('offers/:id/conversion') @RequirePermission('admission.conversion.execute', { stepUpLevel: 2 })
   convert(@Param('id', ParseUUIDPipe) id: string, @Body() input: ConvertAdmissionDto,

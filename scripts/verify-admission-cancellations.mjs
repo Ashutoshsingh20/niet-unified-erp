@@ -30,6 +30,7 @@ try {
   const applicant = { subjectId: `cancellation-applicant-${suffix}`, assuranceLevel: 2,
     permissions: new Set(), scopes: { organization: [scopeId] } };
   const assessor = { ...applicant, subjectId: `cancellation-assessor-${suffix}` };
+  const financeResolver = { ...applicant, subjectId: `cancellation-finance-${suffix}` };
   const outsider = { ...assessor, subjectId: `cancellation-outsider-${suffix}`,
     scopes: { organization: [randomUUID()] } };
   const cancellationPolicy = 'SYNTHETIC-CANCELLATION-ASSESSMENT-POLICY';
@@ -121,6 +122,33 @@ try {
     mappingTrace: { result: 'BLOCKED' }, expectedOfferVersion: 2 }, assessor); }
   catch (error) { conversionBlocked = error instanceof ConflictException; }
   if (!conversionBlocked) throw new Error('Active finance-review cancellation allowed conversion');
+  const financeResolution = { expectedRequestVersion: 2, outcome: 'CANCELLED',
+    financialOutcome: 'NO_REFUND_REQUIRED', evaluationEngine: 'synthetic-finance-review',
+    evaluationVersion: 'v1', policyReference: cancellationPolicy,
+    evaluationTrace: { result: 'SYNTHETIC_NO_REFUND_DUE' },
+    reason: 'Synthetic finance evidence finds no refundable payment' };
+  let assessorResolutionDenied = false;
+  try { await service.resolveCancellationFinance(financeRequest.id, financeResolution, assessor); }
+  catch (error) { assessorResolutionDenied = error instanceof ForbiddenException; }
+  if (!assessorResolutionDenied) throw new Error('Cancellation assessor resolved the finance review');
+  let fabricatedRefundDenied = false;
+  try { await service.resolveCancellationFinance(financeRequest.id, { ...financeResolution,
+    financialOutcome: 'REFUND_COMPLETED' }, financeResolver); }
+  catch (error) { fabricatedRefundDenied = error instanceof ConflictException; }
+  if (!fabricatedRefundDenied) throw new Error('Finance review claimed a refund without refund evidence');
+  const financeCancelled = await service.resolveCancellationFinance(
+    financeRequest.id, financeResolution, financeResolver);
+  const financeCancelledReplay = await service.resolveCancellationFinance(
+    financeRequest.id, financeResolution, financeResolver);
+  if (financeCancelled.status !== 'CANCELLED' || financeCancelled.replayed
+    || !financeCancelledReplay.replayed) {
+    throw new Error('Finance-reviewed cancellation was not completed idempotently');
+  }
+  const clearedExceptions = await service.listCancellationExceptions({ scopeType: 'organization', scopeId,
+    limit: 50 }, assessor);
+  if (clearedExceptions.items.some((item) => item.cancellationRequestId === financeRequest.id)) {
+    throw new Error('Resolved finance cancellation remained in the exception worklist');
+  }
 
   const rejected = await createAcceptedOffer('REJECTED');
   const rejectedRequest = await service.requestCancellation(rejected.offerId,
@@ -151,12 +179,18 @@ try {
   try { await dataSource.query("UPDATE admissions.cancellation_assessments SET reason='tampered'"); }
   catch { assessmentMutationRejected = true; }
   if (!assessmentMutationRejected) throw new Error('Cancellation assessment evidence was mutable');
+  let financeResolutionMutationRejected = false;
+  try { await dataSource.query("UPDATE admissions.cancellation_finance_resolutions SET reason='tampered'"); }
+  catch { financeResolutionMutationRejected = true; }
+  if (!financeResolutionMutationRejected) throw new Error('Cancellation finance resolution was mutable');
 
   const proofRows = await dataSource.query(`SELECT
     (SELECT array_agg(status ORDER BY id) FROM admissions.cancellation_requests
       WHERE id=ANY($1::uuid[])) request_statuses,
     (SELECT count(*)::int FROM admissions.cancellation_assessments
       WHERE request_id=ANY($1::uuid[])) assessments,
+    (SELECT count(*)::int FROM admissions.cancellation_finance_resolutions
+      WHERE request_id=ANY($1::uuid[])) finance_resolutions,
     (SELECT count(*)::int FROM platform.audit_events
       WHERE resource_type='admission-cancellation-request' AND resource_id=ANY($2::text[])) audits,
     (SELECT count(*)::int FROM platform.outbox_events
@@ -167,13 +201,14 @@ try {
     [noRefundRequest.id, financeRequest.id, rejectedRequest.id], noRefund.offerId, noRefund.applicationId]);
   const proof = proofRows[0];
   const statuses = [...(proof?.request_statuses ?? [])].sort();
-  if (JSON.stringify(statuses) !== JSON.stringify(['CANCELLED', 'PENDING_FINANCE', 'REJECTED'])
-    || proof?.assessments !== 3 || proof?.audits !== 6 || proof?.events !== 6
+  if (JSON.stringify(statuses) !== JSON.stringify(['CANCELLED', 'CANCELLED', 'REJECTED'])
+    || proof?.assessments !== 3 || proof?.finance_resolutions !== 1
+    || proof?.audits !== 7 || proof?.events !== 7
     || proof?.cancelled_offer_status !== 'CANCELLED'
     || proof?.cancelled_application_status !== 'WITHDRAWN') {
     throw new Error('Cancellation state, assessment, audit, or event evidence is incomplete');
   }
-  process.stdout.write('Admission cancellation ownership, exact replay, explainable no-refund completion, finance-review handoff/worklist, conversion block, post-conversion fail-closed boundary, maker-checker, scope, immutable evidence, audit, and outbox verified\n');
+  process.stdout.write('Admission cancellation ownership, exact replay, explainable no-refund completion, finance-review handoff and governed closure, real-refund evidence boundary, worklist lifecycle, conversion block, post-conversion fail-closed boundary, maker-checker, scope, immutable evidence, audit, and outbox verified\n');
 } finally {
   await dataSource.destroy();
 }

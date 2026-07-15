@@ -65,6 +65,7 @@ try {
     'admissions.offer_lifecycle_events',
     'admissions.cancellation_requests',
     'admissions.cancellation_assessments',
+    'admissions.cancellation_finance_resolutions',
     'admissions.conversions',
     'curriculum.programme_versions',
     'student.programme_enrolments',

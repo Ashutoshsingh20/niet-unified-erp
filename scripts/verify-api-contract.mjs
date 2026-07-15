@@ -61,6 +61,7 @@ try {
     '/api/v1/admissions/offer-exceptions',
     '/api/v1/admissions/offers/{id}/cancellation-requests',
     '/api/v1/admissions/cancellation-requests/{id}/assessment',
+    '/api/v1/admissions/cancellation-requests/{id}/finance-resolution',
     '/api/v1/admissions/cancellation-exceptions',
     '/api/v1/admissions/offers/{id}/conversion',
     '/api/v1/student-core/me',

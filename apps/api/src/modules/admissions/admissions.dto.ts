@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsBase64, IsBoolean, IsIn,
   IsInt, IsObject, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min,
-  MinLength, ValidateNested, IsISO8601 } from 'class-validator';
+  MinLength, ValidateNested, IsISO8601, ValidateIf } from 'class-validator';
 export class CreateApplicationDto {
   @IsString() @MinLength(1) @MaxLength(200) applicantSubjectId!: string;
   @Matches(/^[a-zA-Z0-9_.-]{2,100}$/) programmeKey!: string;
@@ -68,6 +68,20 @@ export class AdmissionCancellationExceptionsQueryDto {
   @IsString() @MinLength(1) @MaxLength(200) scopeId!: string;
   @Type(() => Number) @IsInt() @Min(1) @Max(100) limit = 50;
   @IsOptional() @IsUUID() after?: string;
+}
+export class ResolveAdmissionCancellationFinanceDto {
+  @IsInt() @Min(1) expectedRequestVersion!: number;
+  @IsIn(['CANCELLED', 'REJECTED']) outcome!: 'CANCELLED' | 'REJECTED';
+  @IsIn(['NO_REFUND_REQUIRED', 'REFUND_REJECTED', 'REFUND_COMPLETED'])
+  financialOutcome!: 'NO_REFUND_REQUIRED' | 'REFUND_REJECTED' | 'REFUND_COMPLETED';
+  @ValidateIf((input: ResolveAdmissionCancellationFinanceDto) =>
+    input.financialOutcome === 'REFUND_COMPLETED')
+  @IsUUID() financeRefundRequestId?: string;
+  @Matches(/^[a-zA-Z0-9_.-]{2,100}$/) evaluationEngine!: string;
+  @Matches(/^[a-zA-Z0-9_.-]{1,100}$/) evaluationVersion!: string;
+  @IsString() @MinLength(3) @MaxLength(300) policyReference!: string;
+  @IsObject() evaluationTrace!: Record<string, unknown>;
+  @IsString() @MinLength(3) @MaxLength(1000) reason!: string;
 }
 export class ConvertAdmissionDto {
   @IsUUID() idempotencyKey!: string;
