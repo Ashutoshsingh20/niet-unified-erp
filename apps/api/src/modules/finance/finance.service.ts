@@ -8,6 +8,7 @@ import { PolicyService } from '../../platform/auth/policy.service';
 import { TransactionalEvidenceService } from '../../platform/evidence/transactional-evidence.service';
 import type {
   ApproveReconciliationDto,
+  CreateApplicantAccountDto,
   CreateReconciliationDto,
   CreateStudentAccountDto,
   DecideRefundDto,
@@ -19,7 +20,8 @@ import type {
 } from './finance.dto';
 
 type PostingType = 'DEMAND' | 'PAYMENT';
-interface AccountRow { id: string; student_id: string; currency: string; scope_type: string; scope_id: string }
+interface AccountRow { id: string; student_id: string | null; application_id: string | null;
+  currency: string; scope_type: string; scope_id: string }
 interface PostingRow { id: string; account_id: string; posting_type: string; amount_minor: string;
   currency: string; requested_by: string; original_posting_id: string | null;
   idempotency_key: string; evidence_reference: string }
@@ -53,7 +55,7 @@ export class FinanceService {
     const id = randomUUID();
     await this.dataSource.transaction(async (manager) => {
       try {
-        await manager.query(`INSERT INTO finance.student_accounts
+        await manager.query(`INSERT INTO finance.accounts
           (id,student_id,currency,scope_type,scope_id,created_by) VALUES ($1,$2,$3,$4,$5,$6)`,
         [id, input.studentId, input.currency, input.scopeType, input.scopeId, actor.subjectId]);
       } catch (error) { throwUnique(error, 'Student account already exists for this currency'); }
@@ -63,6 +65,60 @@ export class FinanceService {
           scopeType: input.scopeType, scopeId: input.scopeId } });
     });
     return { id };
+  }
+
+  async createApplicantAccount(input: CreateApplicantAccountDto,
+    actor: Principal): Promise<{ id: string; replayed: boolean }> {
+    this.assertEnabled('ADMISSION_FINANCE_ACCOUNT_ENABLED',
+      'Applicant finance accounts are disabled pending NIET admission-fee approval');
+    this.policy.assertScope(actor, input.scopeType, input.scopeId);
+    return this.dataSource.transaction(async (manager) => {
+      const rows = await manager.query<readonly { id: string; status: string;
+        scope_type: string; scope_id: string }[]>(`SELECT id,status,scope_type,scope_id
+        FROM admissions.applications WHERE id=$1 FOR UPDATE`, [input.applicationId]);
+      const application = rows[0];
+      if (application === undefined) throw new NotFoundException('Admission application not found');
+      if (application.scope_type !== input.scopeType || application.scope_id !== input.scopeId) {
+        throw new ConflictException('Application and account scope are not aligned');
+      }
+      if (['REJECTED', 'WITHDRAWN', 'CONVERTED'].includes(application.status)) {
+        throw new ConflictException('Terminal or converted application cannot receive a new applicant account');
+      }
+      const existing = await manager.query<readonly { id: string; policy_reference: string }[]>(
+        'SELECT id,policy_reference FROM finance.accounts WHERE application_id=$1 AND currency=$2',
+      [input.applicationId, input.currency]);
+      if (existing[0] !== undefined) {
+        if (existing[0].policy_reference !== input.policyReference) {
+          throw new ConflictException('Applicant account already exists under a different policy reference');
+        }
+        return { id: existing[0].id, replayed: true };
+      }
+      const id = randomUUID();
+      const inserted = await manager.query<readonly { id: string }[]>(`INSERT INTO finance.accounts
+        (id,application_id,currency,scope_type,scope_id,policy_reference,created_by)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
+        ON CONFLICT (application_id,currency) WHERE application_id IS NOT NULL DO NOTHING RETURNING id`,
+      [id, input.applicationId, input.currency,
+        input.scopeType, input.scopeId, input.policyReference, actor.subjectId]);
+      if (inserted[0] === undefined) {
+        const concurrent = await manager.query<readonly { id: string; policy_reference: string }[]>(
+          'SELECT id,policy_reference FROM finance.accounts WHERE application_id=$1 AND currency=$2',
+        [input.applicationId, input.currency]);
+        if (concurrent[0]?.policy_reference !== input.policyReference) {
+          throw new ConflictException('Applicant account already exists under a different policy reference');
+        }
+        if (concurrent[0] === undefined) throw new ConflictException('Applicant account creation conflicted');
+        return { id: concurrent[0].id, replayed: true };
+      }
+      await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
+        action: 'finance.applicant-account.created', resourceType: 'finance-account', resourceId: id,
+        details: { applicationId: input.applicationId, currency: input.currency,
+          scopeType: input.scopeType, scopeId: input.scopeId, policyReference: input.policyReference } });
+      await this.evidence.outbox(manager, { eventType: 'ApplicantFinanceAccountCreated',
+        aggregateType: 'finance-account', aggregateId: id, classification: 'CONFIDENTIAL',
+        payload: { financeAccountId: id, admissionApplicationId: input.applicationId } });
+      return { id, replayed: false };
+    });
   }
 
   async post(input: PostFinanceTransactionDto, postingType: PostingType,
@@ -188,7 +244,7 @@ export class FinanceService {
       if (snapshotCutoff === undefined) throw new ConflictException('Could not establish reconciliation cutoff');
       const events = await manager.query<readonly { provider_event_id: string; payload_sha256: string;
         amount_minor: string }[]>(`SELECT pe.provider_event_id,pe.payload_sha256,pe.amount_minor::text
-        FROM finance.provider_events pe JOIN finance.student_accounts a ON a.id=pe.account_id
+        FROM finance.provider_events pe JOIN finance.accounts a ON a.id=pe.account_id
         WHERE pe.provider_key=$1 AND a.scope_type=$2 AND a.scope_id=$3 AND pe.currency=$4
           AND pe.provider_occurred_at >= $5 AND pe.provider_occurred_at < $6
           AND pe.recorded_at <= $7
@@ -410,14 +466,14 @@ export class FinanceService {
 
   private assertEnabled(key: keyof Pick<Environment, 'FINANCE_POSTING_ENABLED' | 'FINANCE_REVERSAL_ENABLED'
     | 'FINANCE_PROVIDER_POSTING_ENABLED' | 'FINANCE_RECONCILIATION_APPROVAL_ENABLED'
-    | 'FINANCE_REFUND_ENABLED'>, message: string): void {
+    | 'FINANCE_REFUND_ENABLED' | 'ADMISSION_FINANCE_ACCOUNT_ENABLED'>, message: string): void {
     if (!this.config.get(key, { infer: true })) throw new ForbiddenException(message);
   }
 
   private async lockAccount(manager: EntityManager, id: string): Promise<AccountRow> {
     const rows = await manager.query<readonly AccountRow[]>(
-      'SELECT * FROM finance.student_accounts WHERE id=$1 FOR UPDATE', [id]);
-    if (rows[0] === undefined) throw new NotFoundException('Student account not found');
+      'SELECT * FROM finance.accounts WHERE id=$1 FOR UPDATE', [id]);
+    if (rows[0] === undefined) throw new NotFoundException('Finance account not found');
     return rows[0];
   }
 

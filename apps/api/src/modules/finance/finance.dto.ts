@@ -6,6 +6,13 @@ export class CreateStudentAccountDto {
   @Matches(/^[a-z][a-z0-9_.-]{1,49}$/) scopeType!: string;
   @IsString() @MinLength(1) @MaxLength(200) scopeId!: string;
 }
+export class CreateApplicantAccountDto {
+  @IsUUID() applicationId!: string;
+  @Matches(/^[A-Z]{3}$/) currency!: string;
+  @Matches(/^[a-z][a-z0-9_.-]{1,49}$/) scopeType!: string;
+  @IsString() @MinLength(1) @MaxLength(200) scopeId!: string;
+  @IsString() @MinLength(3) @MaxLength(300) policyReference!: string;
+}
 
 export class PostFinanceTransactionDto {
   @IsUUID() accountId!: string;

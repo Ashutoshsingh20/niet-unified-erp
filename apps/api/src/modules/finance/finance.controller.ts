@@ -5,6 +5,7 @@ import { CurrentPrincipal } from '../../platform/auth/principal.decorator';
 import { RequirePermission } from '../../platform/auth/require-permission.decorator';
 import {
   ApproveReconciliationDto,
+  CreateApplicantAccountDto,
   CreateReconciliationDto,
   CreateStudentAccountDto,
   DecideRefundDto,
@@ -24,6 +25,12 @@ export class FinanceController {
   createAccount(@Body() input: CreateStudentAccountDto,
     @CurrentPrincipal() actor: Principal): Promise<{ id: string }> {
     return this.finance.createAccount(input, actor);
+  }
+  @Post('applicant-accounts') @RequirePermission('finance.applicant-account.create', { stepUpLevel: 2 })
+  @ApiCreatedResponse({ description: 'A currency-specific applicant account was created.' })
+  createApplicantAccount(@Body() input: CreateApplicantAccountDto,
+    @CurrentPrincipal() actor: Principal): Promise<{ id: string; replayed: boolean }> {
+    return this.finance.createApplicantAccount(input, actor);
   }
   @Post('demands') @RequirePermission('finance.demand.raise', { stepUpLevel: 2 })
   postDemand(@Body() input: PostFinanceTransactionDto,

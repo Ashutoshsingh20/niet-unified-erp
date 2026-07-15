@@ -718,11 +718,16 @@ export class AdmissionsService {
         mappingVersion: input.mappingVersion, sourceRowSha256: offer.payload_sha256,
         idempotencyKey: input.idempotencyKey,
       }, actor);
+      const conversionId = randomUUID();
       await manager.query(`INSERT INTO admissions.conversions
         (id,application_id,offer_id,student_id,idempotency_key,mapping_engine,
          mapping_version,mapping_trace,converted_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)`,
-      [randomUUID(), offer.application_id, id, student.id, input.idempotencyKey,
+      [conversionId, offer.application_id, id, student.id, input.idempotencyKey,
         input.mappingEngine, input.mappingVersion, JSON.stringify(input.mappingTrace), actor.subjectId]);
+      await manager.query(`INSERT INTO finance.account_student_links
+        (id,account_id,application_id,student_id,conversion_id,linked_by)
+        SELECT gen_random_uuid(),fa.id,$1,$2,$3,$4 FROM finance.accounts fa
+        WHERE fa.application_id=$1`, [offer.application_id, student.id, conversionId, actor.subjectId]);
       await manager.query("UPDATE admissions.applications SET status='CONVERTED',version=version+1 WHERE id=$1",
         [offer.application_id]);
       await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,

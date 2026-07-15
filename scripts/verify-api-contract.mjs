@@ -43,6 +43,7 @@ try {
     '/api/v1/finance/reconciliations',
     '/api/v1/finance/reconciliations/{id}/approval',
     '/api/v1/finance/postings/{id}/refund-requests',
+    '/api/v1/finance/applicant-accounts',
     '/api/v1/finance/refund-requests/{id}/decision',
     '/api/v1/migration/batches/{id}/reconciliation',
     '/api/v1/migration/batches/{id}/application',

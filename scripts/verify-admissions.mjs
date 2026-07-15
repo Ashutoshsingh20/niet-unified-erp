@@ -3,6 +3,7 @@ import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { AdmissionsService } from '../apps/api/dist/modules/admissions/admissions.service.js';
 import { DocumentsService } from '../apps/api/dist/modules/documents/documents.service.js';
+import { FinanceService } from '../apps/api/dist/modules/finance/finance.service.js';
 import { StudentsService } from '../apps/api/dist/modules/students/students.service.js';
 import { PolicyService } from '../apps/api/dist/platform/auth/policy.service.js';
 import { RequestContextService } from '../apps/api/dist/platform/request-context/request-context.service.js';
@@ -33,6 +34,8 @@ try {
   const suffix = randomUUID().slice(0, 8); const scopeId = randomUUID();
   const policy = new PolicyService(); const evidence = new TransactionalEvidenceService(new RequestContextService());
   const students = new StudentsService(dataSource, policy, evidence);
+  const finance = new FinanceService(dataSource, policy, evidence, { get: () => true });
+  const disabledFinance = new FinanceService(dataSource, policy, evidence, { get: () => false });
   const enabled = new AdmissionsService(dataSource, policy, evidence, { get: () => true }, students);
   const disabled = new AdmissionsService(dataSource, policy, evidence, { get: () => false }, students);
   const documents = new DocumentsService(dataSource, policy, evidence, new VerificationObjectStorage());
@@ -175,6 +178,23 @@ try {
   catch (error) { applicantOwnership = error instanceof ForbiddenException; }
   if (!applicantOwnership) throw new Error('Non-applicant accepted admission offer');
   await enabled.acceptOffer(offer.id, { expectedOfferVersion: 1 }, applicant);
+  const applicantAccountInput = { applicationId: created.id, currency: 'INR',
+    scopeType: 'organization', scopeId, policyReference: 'SYNTHETIC-ADMISSION-FEE-POLICY' };
+  let applicantAccountDisabled = false;
+  try { await disabledFinance.createApplicantAccount(applicantAccountInput, reviewer); }
+  catch (error) { applicantAccountDisabled = error instanceof ForbiddenException; }
+  if (!applicantAccountDisabled) throw new Error('Applicant account bypassed its disabled gate');
+  const [applicantAccount, applicantAccountReplay] = await Promise.all([
+    finance.createApplicantAccount(applicantAccountInput, reviewer),
+    finance.createApplicantAccount(applicantAccountInput, reviewer),
+  ]);
+  if (applicantAccount.replayed === applicantAccountReplay.replayed
+    || applicantAccountReplay.id !== applicantAccount.id) {
+    throw new Error('Applicant finance account was not idempotent');
+  }
+  const applicantPayment = await finance.post({ accountId: applicantAccount.id, amountMinor: '2500',
+    currency: 'INR', idempotencyKey: randomUUID(),
+    evidenceReference: `admission-application:${created.id}` }, 'PAYMENT', reviewer);
   const conversionInput = { idempotencyKey: randomUUID(), displayName: 'Synthetic Converted Student',
     mappingEngine: 'synthetic-mapper', mappingVersion: 'v1',
     mappingTrace: { result: 'SYNTHETIC_MAPPING' }, expectedOfferVersion: 2 };
@@ -186,6 +206,15 @@ try {
   const conversionReplay = await enabled.convert(offer.id, conversionInput, reviewer);
   if (conversion.replayed || !conversionReplay.replayed
     || conversionReplay.studentId !== conversion.studentId) throw new Error('Admission conversion was not idempotent');
+  let postConversionAccountRejected = false;
+  try { await finance.createApplicantAccount({ ...applicantAccountInput, currency: 'USD' }, reviewer); }
+  catch (error) { postConversionAccountRejected = error instanceof ConflictException; }
+  if (!postConversionAccountRejected) throw new Error('Converted application received a new applicant account');
+  let accountMutationRejected = false;
+  try { await dataSource.query('UPDATE finance.accounts SET scope_id=$2 WHERE id=$1',
+    [applicantAccount.id, randomUUID()]); }
+  catch { accountMutationRejected = true; }
+  if (!accountMutationRejected) throw new Error('Finance account ownership evidence was mutable');
   let mutationRejected = false;
   try { await dataSource.query("UPDATE admissions.decisions SET reason='tampered' WHERE application_id=$1", [created.id]); }
   catch { mutationRejected = true; }
@@ -214,11 +243,16 @@ try {
     (SELECT count(*)::int FROM platform.audit_events WHERE resource_type='admission-document-checklist'
       AND resource_id=dc.id::text) checklist_audits,
     (SELECT count(*)::int FROM platform.outbox_events WHERE aggregate_type='admission-document-checklist'
-      AND aggregate_id=dc.id::text) checklist_events
+      AND aggregate_id=dc.id::text) checklist_events,
+    (SELECT count(*)::int FROM finance.account_student_links asl
+      WHERE asl.account_id=$2 AND asl.student_id=s.id AND asl.application_id=a.id) account_links,
+    (SELECT count(*)::int FROM finance.postings p
+      WHERE p.id=$3 AND p.account_id=$2 AND p.posting_type='PAYMENT') applicant_payments
     FROM admissions.applications a JOIN admissions.decisions d ON d.application_id=a.id
     JOIN admissions.offers o ON o.application_id=a.id JOIN admissions.conversions c ON c.application_id=a.id
     JOIN student.records s ON s.id=c.student_id
-    JOIN admissions.document_checklists dc ON dc.application_id=a.id WHERE a.id=$1`, [created.id]);
+    JOIN admissions.document_checklists dc ON dc.application_id=a.id WHERE a.id=$1`,
+  [created.id, applicantAccount.id, applicantPayment.id]);
   const proof = rows[0];
   if (proof?.status !== 'CONVERTED' || proof?.version !== 4 || proof?.evaluation_engine !== 'synthetic-evaluator'
     || proof?.regulation_reference !== 'SYNTHETIC-VERIFICATION-ONLY' || proof?.offer_status !== 'ACCEPTED'
@@ -228,8 +262,9 @@ try {
     || proof?.source_key !== created.id || proof?.source_row_sha256 !== input.payloadSha256
     || proof?.audits !== 4 || proof?.offer_audits !== 2 || proof?.application_events !== 4
     || proof?.offer_events !== 2 || proof?.attachments !== 1 || proof?.verifications !== 1
-    || proof?.checklist_audits !== 2 || proof?.checklist_events !== 1) {
+    || proof?.checklist_audits !== 2 || proof?.checklist_events !== 1
+    || proof?.account_links !== 1 || proof?.applicant_payments !== 1) {
     throw new Error('Admission decision, offer, conversion, audit, or event evidence is incomplete');
   }
-  process.stdout.write('Admissions encryption boundary, scoped document checklist publication, clean attachment, immutable verification, exception worklist, optional offer enforcement, applicant submission/acceptance, idempotency, decision/conversion gates, evaluator/mapper evidence, atomic canonical conversion, audit, and outbox verified\n');
+  process.stdout.write('Admissions encryption boundary, scoped document checklist publication, clean attachment, immutable verification, exception worklist, optional offer enforcement, applicant submission/acceptance, governed applicant payment account, idempotency, decision/conversion gates, evaluator/mapper evidence, atomic canonical conversion with finance continuity, audit, and outbox verified\n');
 } finally { await dataSource.destroy(); }

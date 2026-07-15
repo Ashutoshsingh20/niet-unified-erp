@@ -138,7 +138,9 @@ export class StudentWithdrawalsService {
       (SELECT count(*)::int FROM admissions.conversions c
         JOIN admissions.cancellation_requests cr ON cr.offer_id=c.offer_id
         WHERE c.student_id=r.student_id AND cr.status='PENDING_FINANCE') pending_finance,
-      (SELECT count(*)::int FROM finance.student_accounts fa WHERE fa.student_id=r.student_id
+      (SELECT count(*)::int FROM finance.accounts fa
+        LEFT JOIN finance.account_student_links fasl ON fasl.account_id=fa.id
+        WHERE COALESCE(fa.student_id,fasl.student_id)=r.student_id
         AND (SELECT COALESCE(sum(CASE WHEN e.ledger_account='RECEIVABLE' AND e.direction='DEBIT'
           THEN e.amount_minor WHEN e.ledger_account='RECEIVABLE' AND e.direction='CREDIT'
           THEN -e.amount_minor ELSE 0 END),0) FROM finance.postings p
@@ -164,10 +166,12 @@ export class StudentWithdrawalsService {
       (SELECT count(*)::int FROM admissions.conversions c
         JOIN admissions.cancellation_requests r ON r.offer_id=c.offer_id
         WHERE c.student_id=$1 AND r.status='PENDING_FINANCE') pending_finance,
-      (SELECT count(*)::int FROM finance.student_accounts a JOIN finance.postings p ON p.account_id=a.id
+      (SELECT count(*)::int FROM finance.accounts a
+        LEFT JOIN finance.account_student_links fasl ON fasl.account_id=a.id
+        JOIN finance.postings p ON p.account_id=a.id
         JOIN finance.refund_requests rr ON rr.original_payment_posting_id=p.id
         LEFT JOIN finance.refund_decisions rd ON rd.request_id=rr.id
-        WHERE a.student_id=$1 AND rd.id IS NULL) pending_refunds`, [studentId]);
+        WHERE COALESCE(a.student_id,fasl.student_id)=$1 AND rd.id IS NULL) pending_refunds`, [studentId]);
     const row = blockers[0];
     if ((row?.active_holds ?? 0) > 0 || (row?.pending_finance ?? 0) > 0
       || (row?.pending_refunds ?? 0) > 0) {

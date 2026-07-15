@@ -54,6 +54,8 @@ const environmentSchema = z.object({
     .transform((value) => value === 'true'),
   ADMISSION_CANCELLATION_ENABLED: z.enum(['true', 'false']).default('false')
     .transform((value) => value === 'true'),
+  ADMISSION_FINANCE_ACCOUNT_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
   TIMETABLE_PUBLICATION_ENABLED: z.enum(['true', 'false']).default('false')
     .transform((value) => value === 'true'),
   STUDENT_CONVERSION_ENABLED: z.enum(['true', 'false']).default('false')

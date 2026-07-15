@@ -69,8 +69,10 @@ export class StudentCoreService {
         a.currency,COALESCE(sum(CASE WHEN e.ledger_account='RECEIVABLE' AND e.direction='DEBIT'
           THEN e.amount_minor WHEN e.ledger_account='RECEIVABLE' AND e.direction='CREDIT'
           THEN -e.amount_minor ELSE 0 END),0)::text balance_minor
-        FROM finance.student_accounts a LEFT JOIN finance.postings p ON p.account_id=a.id
-        LEFT JOIN finance.ledger_entries e ON e.posting_id=p.id WHERE a.student_id=$1
+        FROM finance.accounts a LEFT JOIN finance.account_student_links fasl ON fasl.account_id=a.id
+        LEFT JOIN finance.postings p ON p.account_id=a.id
+        LEFT JOIN finance.ledger_entries e ON e.posting_id=p.id
+        WHERE COALESCE(a.student_id,fasl.student_id)=$1
         GROUP BY a.id,a.currency ORDER BY a.currency`, [student.id]),
     ]);
     return {
