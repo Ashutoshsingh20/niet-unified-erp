@@ -81,6 +81,8 @@ try {
     'admissions.merit_lists',
     'admissions.merit_list_entries',
     'admissions.merit_entry_seat_reservations',
+    'admissions.conversion_exception_cases',
+    'admissions.conversion_exception_resolutions',
     'admissions.conversions',
     'curriculum.programme_versions',
     'student.programme_enrolments',

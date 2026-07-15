@@ -69,6 +69,7 @@ jobs:
       - run: npm run admission-offers:verify
       - run: npm run seat-matrices:verify
       - run: npm run merit-lists:verify
+      - run: npm run conversion-exceptions:verify
       - run: npm run admission-cancellations:verify
       - run: npm run timetable:verify
       - run: npm run student-core:verify

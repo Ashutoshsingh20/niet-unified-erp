@@ -70,6 +70,10 @@ const environmentSchema = z.object({
     .transform((value) => value === 'true'),
   ADMISSION_MERIT_SEAT_ENFORCEMENT_ENABLED: z.enum(['true', 'false']).default('false')
     .transform((value) => value === 'true'),
+  ADMISSION_CONVERSION_EXCEPTION_RESOLUTION_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
+  ADMISSION_CONVERSION_EXCEPTION_WAIVER_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
   TIMETABLE_PUBLICATION_ENABLED: z.enum(['true', 'false']).default('false')
     .transform((value) => value === 'true'),
   STUDENT_CONVERSION_ENABLED: z.enum(['true', 'false']).default('false')
