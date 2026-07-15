@@ -31,6 +31,7 @@ export class IssueAdmissionOfferDto {
   @IsISO8601({ strict: true }) expiresAt!: string;
   @IsString() @MinLength(3) @MaxLength(300) policyReference!: string;
   @IsInt() @Min(1) expectedApplicationVersion!: number;
+  @IsOptional() @IsUUID() seatReservationId?: string;
 }
 export class AcceptAdmissionOfferDto {
   @IsInt() @Min(1) expectedOfferVersion!: number;

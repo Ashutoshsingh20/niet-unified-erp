@@ -36,7 +36,11 @@ try {
   const students = new StudentsService(dataSource, policy, evidence);
   const finance = new FinanceService(dataSource, policy, evidence, { get: () => true });
   const disabledFinance = new FinanceService(dataSource, policy, evidence, { get: () => false });
-  const enabled = new AdmissionsService(dataSource, policy, evidence, { get: () => true }, students);
+  const enabledAdmissionKeys = new Set(['ADMISSION_DOCUMENT_CHECKLIST_ENABLED',
+    'ADMISSION_DOCUMENT_VERIFICATION_ENABLED', 'ADMISSION_DOCUMENT_ENFORCEMENT_ENABLED',
+    'ADMISSION_DECISION_ENABLED', 'STUDENT_CONVERSION_ENABLED']);
+  const enabled = new AdmissionsService(dataSource, policy, evidence,
+    { get: (key) => enabledAdmissionKeys.has(key) }, students);
   const disabled = new AdmissionsService(dataSource, policy, evidence, { get: () => false }, students);
   const documents = new DocumentsService(dataSource, policy, evidence, new VerificationObjectStorage());
   const applicant = { subjectId: `applicant-${suffix}`, assuranceLevel: 2, permissions: new Set(), scopes: { organization: [scopeId] } };

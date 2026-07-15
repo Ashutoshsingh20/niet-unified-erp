@@ -39,8 +39,12 @@ try {
   const suffix = randomUUID().slice(0, 8); const scopeId = randomUUID();
   const policy = new PolicyService(); const evidence = new TransactionalEvidenceService(new RequestContextService());
   const config = { get: () => true };
+  const admissionsKeys = new Set(['ADMISSION_DOCUMENT_CHECKLIST_ENABLED',
+    'ADMISSION_DOCUMENT_VERIFICATION_ENABLED', 'ADMISSION_DOCUMENT_ENFORCEMENT_ENABLED',
+    'ADMISSION_DECISION_ENABLED', 'STUDENT_CONVERSION_ENABLED']);
+  const admissionsConfig = { get: (key) => admissionsKeys.has(key) };
   const students = new StudentsService(dataSource, policy, evidence);
-  const admissions = new AdmissionsService(dataSource, policy, evidence, config, students);
+  const admissions = new AdmissionsService(dataSource, policy, evidence, admissionsConfig, students);
   const documents = new DocumentsService(dataSource, policy, evidence, new JourneyObjectStorage());
   const curriculum = new CurriculumService(dataSource, policy, evidence, config);
   const registration = new RegistrationService(dataSource, policy, evidence, config);

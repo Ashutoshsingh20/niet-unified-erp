@@ -381,6 +381,19 @@ export class AdmissionsService {
       const expiry = await manager.query<readonly { future: boolean }[]>(
         'SELECT $1::timestamptz > clock_timestamp() future', [input.expiresAt]);
       if (expiry[0]?.future !== true) throw new ConflictException('Admission offer expiry must be in the future');
+      if (this.config.get('ADMISSION_SEAT_ENFORCEMENT_ENABLED', { infer: true })
+        && input.seatReservationId === undefined) {
+        throw new ConflictException('Admission offer requires a governed seat reservation');
+      }
+      if (input.seatReservationId !== undefined) {
+        const reservations = await manager.query<readonly { id: string }[]>(`SELECT r.id
+          FROM admissions.seat_reservations r JOIN admissions.seat_matrices m ON m.id=r.matrix_id
+          WHERE r.id=$1 AND r.application_id=$2 AND r.status='RESERVED' AND m.status='PUBLISHED'
+          FOR UPDATE OF r`, [input.seatReservationId, applicationId]);
+        if (reservations[0] === undefined) {
+          throw new ConflictException('Seat reservation is not active for this application');
+        }
+      }
       const id = randomUUID();
       try {
         await manager.query(`INSERT INTO admissions.offers
@@ -388,6 +401,10 @@ export class AdmissionsService {
           VALUES ($1,$2,$3,$4,$5,$6,$7)`, [id, applicationId, input.offerReference,
           input.termsManifestSha256, input.expiresAt, input.policyReference, actor.subjectId]);
       } catch (error) { throwUnique(error, 'Admission application or offer reference already has an offer'); }
+      if (input.seatReservationId !== undefined) {
+        await manager.query(`INSERT INTO admissions.offer_seat_reservations(offer_id,reservation_id)
+          VALUES ($1,$2)`, [id, input.seatReservationId]);
+      }
       await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
         action: 'admission.offer.issued', resourceType: 'admission-offer', resourceId: id,
         details: { applicationId, termsManifestSha256: input.termsManifestSha256,
@@ -555,6 +572,8 @@ export class AdmissionsService {
       if (status === 'CANCELLED') {
         await manager.query("UPDATE admissions.offers SET status='CANCELLED',version=version+1 WHERE id=$1",
           [request.offer_id]);
+        await this.releaseSeatForOffer(manager, request.offer_id, actor.subjectId,
+          `admission-cancellation:${id}`);
         await manager.query(`UPDATE admissions.applications SET status='WITHDRAWN',version=version+1
           WHERE id=$1 AND status='OFFERED'`, [request.application_id]);
       }
@@ -663,6 +682,8 @@ export class AdmissionsService {
       if (input.outcome === 'CANCELLED') {
         await manager.query("UPDATE admissions.offers SET status='CANCELLED',version=version+1 WHERE id=$1",
           [request.offer_id]);
+        await this.releaseSeatForOffer(manager, request.offer_id, actor.subjectId,
+          `admission-cancellation:${id}`);
         await manager.query(`UPDATE admissions.applications SET status='WITHDRAWN',version=version+1
           WHERE id=$1 AND status='OFFERED'`, [request.application_id]);
       }
@@ -724,6 +745,7 @@ export class AdmissionsService {
          mapping_version,mapping_trace,converted_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)`,
       [conversionId, offer.application_id, id, student.id, input.idempotencyKey,
         input.mappingEngine, input.mappingVersion, JSON.stringify(input.mappingTrace), actor.subjectId]);
+      await this.consumeSeatForConversion(manager, id, conversionId, actor.subjectId);
       await manager.query(`INSERT INTO finance.account_student_links
         (id,account_id,application_id,student_id,conversion_id,linked_by)
         SELECT gen_random_uuid(),fa.id,$1,$2,$3,$4 FROM finance.accounts fa
@@ -850,6 +872,8 @@ export class AdmissionsService {
         VALUES ($1,$2,$3,$4,'ISSUED',$4,$5,$6,$7)`, [randomUUID(), id, offer.application_id,
         target, input.reason, input.policyReference, actor.subjectId]);
       await manager.query('UPDATE admissions.offers SET status=$2,version=version+1 WHERE id=$1', [id, target]);
+      await this.releaseSeatForOffer(manager, id, actor.subjectId,
+        `admission-offer-transition:${target.toLowerCase()}`);
       await manager.query(`UPDATE admissions.applications SET status='WITHDRAWN',version=version+1
         WHERE id=$1 AND status='OFFERED'`, [offer.application_id]);
       await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
@@ -863,6 +887,38 @@ export class AdmissionsService {
         payload: { admissionOfferId: id, admissionApplicationId: offer.application_id } });
       return { replayed: false };
     });
+  }
+  private async releaseSeatForOffer(manager: EntityManager, offerId: string,
+    actorSubjectId: string, evidenceReference: string): Promise<void> {
+    const rows = await manager.query<readonly { id: string; status: string }[]>(`SELECT r.id,r.status
+      FROM admissions.offer_seat_reservations osr JOIN admissions.seat_reservations r
+        ON r.id=osr.reservation_id WHERE osr.offer_id=$1 FOR UPDATE OF r`, [offerId]);
+    const reservation = rows[0];
+    if (reservation === undefined) return;
+    if (reservation.status !== 'RESERVED') {
+      throw new ConflictException('Offer seat reservation is already terminal');
+    }
+    await manager.query(`INSERT INTO admissions.seat_releases
+      (id,reservation_id,offer_id,evidence_reference,released_by) VALUES ($1,$2,$3,$4,$5)`,
+    [randomUUID(), reservation.id, offerId, evidenceReference, actorSubjectId]);
+    await manager.query(`UPDATE admissions.seat_reservations SET status='RELEASED',version=version+1
+      WHERE id=$1`, [reservation.id]);
+  }
+  private async consumeSeatForConversion(manager: EntityManager, offerId: string,
+    conversionId: string, actorSubjectId: string): Promise<void> {
+    const rows = await manager.query<readonly { id: string; status: string }[]>(`SELECT r.id,r.status
+      FROM admissions.offer_seat_reservations osr JOIN admissions.seat_reservations r
+        ON r.id=osr.reservation_id WHERE osr.offer_id=$1 FOR UPDATE OF r`, [offerId]);
+    const reservation = rows[0];
+    if (reservation === undefined) return;
+    if (reservation.status !== 'RESERVED') {
+      throw new ConflictException('Offer seat reservation is not active for conversion');
+    }
+    await manager.query(`INSERT INTO admissions.seat_conversions
+      (id,reservation_id,conversion_id,consumed_by) VALUES ($1,$2,$3,$4)`,
+    [randomUUID(), reservation.id, conversionId, actorSubjectId]);
+    await manager.query(`UPDATE admissions.seat_reservations SET status='CONVERTED',version=version+1
+      WHERE id=$1`, [reservation.id]);
   }
   private async replay(manager: EntityManager, input: CreateApplicationDto): Promise<{ id: string; replayed: boolean }> {
     const rows = await manager.query<readonly ApplicationRow[]>(
