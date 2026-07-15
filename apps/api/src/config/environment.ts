@@ -34,6 +34,12 @@ const environmentSchema = z.object({
     .transform((value) => value === 'true'),
   FINANCE_REVERSAL_ENABLED: z.enum(['true', 'false']).default('false')
     .transform((value) => value === 'true'),
+  FINANCE_PROVIDER_POSTING_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
+  FINANCE_RECONCILIATION_APPROVAL_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
+  FINANCE_REFUND_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
   MIGRATION_APPLICATION_ENABLED: z.enum(['true', 'false']).default('false')
     .transform((value) => value === 'true'),
   ADMISSION_DECISION_ENABLED: z.enum(['true', 'false']).default('false')
