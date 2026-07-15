@@ -47,6 +47,7 @@
     "student-core:verify": "node scripts/verify-student-core.mjs",
     "programmes:verify": "node scripts/verify-programmes.mjs",
     "holds:verify": "node scripts/verify-holds.mjs",
+    "student-withdrawals:verify": "node scripts/verify-student-withdrawals.mjs",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",

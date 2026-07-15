@@ -84,6 +84,7 @@ services:
       STUDENT_HOLD_ENFORCEMENT_ENABLED: "false"
       WAITLIST_PROMOTION_ENABLED: "false"
       REGISTRATION_WITHDRAWAL_ENABLED: "false"
+      STUDENT_WITHDRAWAL_ENABLED: "false"
     secrets: [postgres_password, object_storage_service_password, opensearch_query_password]
     depends_on:
       migrate:

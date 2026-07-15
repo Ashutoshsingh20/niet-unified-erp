@@ -68,6 +68,9 @@ try {
     '/api/v1/programmes/enrolments/{id}/activation',
     '/api/v1/student-holds/{id}/activation',
     '/api/v1/student-holds/{id}/release',
+    '/api/v1/student-withdrawals',
+    '/api/v1/student-withdrawals/{id}/decision',
+    '/api/v1/student-withdrawals/exceptions',
     '/api/v1/registration/requests/{id}/waitlist-promotion',
     '/api/v1/registration/requests/{id}/withdrawal',
   ];

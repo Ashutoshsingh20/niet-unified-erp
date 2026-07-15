@@ -25,6 +25,7 @@ import { TimetableModule } from './modules/timetable/timetable.module';
 import { StudentCoreModule } from './modules/student-core/student-core.module';
 import { ProgrammesModule } from './modules/programmes/programmes.module';
 import { HoldsModule } from './modules/holds/holds.module';
+import { StudentWithdrawalsModule } from './modules/student-withdrawals/student-withdrawals.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { HoldsModule } from './modules/holds/holds.module';
     StudentCoreModule,
     ProgrammesModule,
     HoldsModule,
+    StudentWithdrawalsModule,
   ],
 })
 export class AppModule {}
