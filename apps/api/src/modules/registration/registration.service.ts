@@ -19,6 +19,7 @@ interface EligibilityRow { requested_credit_units: string; maximum_credit_units:
   adviser_required: boolean; adviser_approval_id: string | null; evaluation_engine: string;
   evaluation_version: string; policy_reference: string; evaluation_trace: Record<string, unknown> }
 interface OverrideUsageRow { authorization_id: string; exception_type: string }
+interface CapacityAssignmentRow { offering_id: string; pool_id: string; entitlement_id: string }
 
 @Injectable()
 export class RegistrationService {
@@ -156,6 +157,12 @@ export class RegistrationService {
       if (offerings.length !== offeringIds.length) {
         throw new ConflictException('Every requested offering must be published in the selected period and scope');
       }
+      const capacityAssignments = [...(input.capacityAssignments ?? [])]
+        .sort((a, b) => a.offeringId.localeCompare(b.offeringId));
+      if (new Set(capacityAssignments.map((item) => item.offeringId)).size !== capacityAssignments.length
+        || capacityAssignments.some((item) => !offeringIds.includes(item.offeringId))) {
+        throw new ConflictException('Capacity assignments must uniquely match requested offerings');
+      }
       const eligibilityRequired = this.config.get('REGISTRATION_ELIGIBILITY_ENFORCEMENT_ENABLED',
         { infer: true });
       if (eligibilityRequired && input.eligibilitySnapshot === undefined) {
@@ -198,6 +205,19 @@ export class RegistrationService {
         await manager.query('INSERT INTO registration.request_items(request_id,offering_id) VALUES ($1,$2)',
           [id, offeringId]);
       }
+      for (const assignment of capacityAssignments) {
+        try {
+          await manager.query(`INSERT INTO registration.request_capacity_assignments
+            (request_id,offering_id,pool_id,entitlement_id,assigned_by)
+            VALUES ($1,$2,$3,$4,$5)`, [id, assignment.offeringId, assignment.poolId,
+            assignment.entitlementId, actor.subjectId]);
+        } catch (error) {
+          if (isDatabaseConstraint(error)) {
+            throw new ConflictException('Capacity entitlement is not valid for this request');
+          }
+          throw error;
+        }
+      }
       for (const authorization of authorizations) {
         try {
           await manager.query(`INSERT INTO registration.request_override_usages
@@ -234,7 +254,9 @@ export class RegistrationService {
             maximumCreditUnits: snapshot.maximumCreditUnits, adviserRequired: snapshot.adviserRequired,
             adviserApprovalId: snapshot.adviserApprovalId ?? null, timetableConflictCount,
             evaluationEngine: snapshot.evaluationEngine, evaluationVersion: snapshot.evaluationVersion,
-            policyReference: snapshot.policyReference }, overrideAuthorizationIds: overrideIds } });
+            policyReference: snapshot.policyReference }, overrideAuthorizationIds: overrideIds,
+          capacityAssignments: capacityAssignments.map((item) => ({ offeringId: item.offeringId,
+            poolId: item.poolId, entitlementId: item.entitlementId })) } });
       await this.evidence.outbox(manager, { eventType: 'RegistrationRequested',
         aggregateType: 'registration-request', aggregateId: id, classification: 'CONFIDENTIAL',
         payload: { registrationRequestId: id, studentId: input.studentId } });
@@ -278,6 +300,7 @@ export class RegistrationService {
       await manager.query(`UPDATE registration.requests SET status=$2,version=version+1,
         decided_by=$3,decided_at=clock_timestamp(),decision_reason=$4 WHERE id=$1`,
       [id, input.outcome, actor.subjectId, input.reason]);
+      if (input.outcome === 'CONFIRMED') await this.insertConfirmedAllocations(manager, id);
       await manager.query(`INSERT INTO registration.decisions
         (id,request_id,outcome,regulation_id,evaluation_engine,evaluation_version,
          evaluation_trace,reason,decided_by) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)`,
@@ -351,6 +374,7 @@ export class RegistrationService {
       [id, actor.subjectId]);
       await manager.query(`UPDATE registration.requests SET status='CONFIRMED',version=version+1,
         decision_reason=$2 WHERE id=$1`, [id, input.reason]);
+      await this.insertConfirmedAllocations(manager, id);
       await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
         action: 'registration.waitlist.promoted', resourceType: 'registration-request', resourceId: id,
         details: { evaluationEngine: input.evaluationEngine, evaluationVersion: input.evaluationVersion } });
@@ -389,6 +413,9 @@ export class RegistrationService {
       }
       await manager.query(`UPDATE registration.requests SET status='CANCELLED',version=version+1,
         decision_reason=$2 WHERE id=$1`, [id, input.reason]);
+      if (request.status === 'CONFIRMED') {
+        await manager.query('DELETE FROM registration.confirmed_item_allocations WHERE request_id=$1', [id]);
+      }
       await this.evidence.audit(manager, { actorSubjectId: actor.subjectId,
         action: 'registration.request.withdrawn', resourceType: 'registration-request', resourceId: id,
         details: { registrationWindowId: addDropWindowId, fromStatus: request.status } });
@@ -418,12 +445,20 @@ export class RegistrationService {
     const overrides = row === undefined ? [] : await manager.query<readonly OverrideUsageRow[]>(
       `SELECT authorization_id,exception_type FROM registration.request_override_usages
        WHERE request_id=$1 ORDER BY authorization_id`, [row.id]);
+    const capacityAssignments = row === undefined ? [] : await manager.query<readonly CapacityAssignmentRow[]>(
+      `SELECT offering_id,pool_id,entitlement_id FROM registration.request_capacity_assignments
+       WHERE request_id=$1 ORDER BY offering_id`, [row.id]);
+    const inputCapacityAssignments = [...(input.capacityAssignments ?? [])]
+      .sort((a, b) => a.offeringId.localeCompare(b.offeringId));
     if (row !== undefined && row.student_id === input.studentId && row.period_id === input.periodId
       && row.scope_type === input.scopeType && row.scope_id === input.scopeId
       && JSON.stringify(items.map((item) => item.offering_id)) === JSON.stringify(offeringIds)
       && eligibilityMatches(eligibility[0], input.eligibilitySnapshot)
       && JSON.stringify(overrides.map((item) => item.authorization_id))
-        === JSON.stringify([...(input.overrideAuthorizationIds ?? [])].sort())) {
+        === JSON.stringify([...(input.overrideAuthorizationIds ?? [])].sort())
+      && JSON.stringify(capacityAssignments.map((item) => ({ offeringId: item.offering_id,
+        poolId: item.pool_id, entitlementId: item.entitlement_id })))
+        === JSON.stringify(inputCapacityAssignments)) {
       return { id: row.id, replayed: true };
     }
     throw new ConflictException('Registration idempotency key already has different content');
@@ -434,19 +469,61 @@ export class RegistrationService {
       `SELECT o.id,o.capacity FROM registration.offerings o
        JOIN registration.request_items target ON target.offering_id=o.id AND target.request_id=$1
        ORDER BY o.id FOR UPDATE OF o`, [requestId]);
-    const counts = await manager.query<readonly { id: string; confirmed: number }[]>(
-      `SELECT o.id,count(r.id)::int confirmed FROM registration.offerings o
-       JOIN registration.request_items target ON target.offering_id=o.id AND target.request_id=$1
-       LEFT JOIN registration.request_items i ON i.offering_id=o.id
-       LEFT JOIN registration.requests r ON r.id=i.request_id AND r.status='CONFIRMED'
-       GROUP BY o.id ORDER BY o.id`, [requestId]);
-    const confirmedById = new Map(counts.map((row) => [row.id, row.confirmed]));
     const capacityOverride = await manager.query<readonly { present: boolean }[]>(`SELECT EXISTS(
       SELECT 1 FROM registration.request_override_usages
       WHERE request_id=$1 AND exception_type='CAPACITY') present`, [requestId]);
-    if (capacityOverride[0]?.present !== true
-      && offerings.some((row) => (confirmedById.get(row.id) ?? 0) >= row.capacity)) {
+    if (capacityOverride[0]?.present === true) return;
+    if (!this.config.get('REGISTRATION_RESERVED_CAPACITY_ENFORCEMENT_ENABLED', { infer: true })) {
+      const counts = await manager.query<readonly { id: string; confirmed: number }[]>(
+        `SELECT o.id,count(a.request_id)::int confirmed FROM registration.offerings o
+         JOIN registration.request_items target ON target.offering_id=o.id AND target.request_id=$1
+         LEFT JOIN registration.confirmed_item_allocations a ON a.offering_id=o.id
+         GROUP BY o.id ORDER BY o.id`, [requestId]);
+      const confirmedById = new Map(counts.map((row) => [row.id, row.confirmed]));
+      if (offerings.some((row) => (confirmedById.get(row.id) ?? 0) >= row.capacity)) {
+        throw new ConflictException('One or more offerings have no remaining confirmed capacity');
+      }
+      return;
+    }
+    await manager.query(`SELECT p.id FROM registration.capacity_pools p
+      JOIN registration.request_items i ON i.offering_id=p.offering_id AND i.request_id=$1
+      WHERE p.status='PUBLISHED' ORDER BY p.id FOR UPDATE OF p`, [requestId]);
+    const violations = await manager.query<readonly { blocked: boolean }[]>(`WITH target AS (
+        SELECT o.id,o.capacity,a.pool_id FROM registration.offerings o
+        JOIN registration.request_items i ON i.offering_id=o.id AND i.request_id=$1
+        LEFT JOIN registration.request_capacity_assignments a
+          ON a.request_id=i.request_id AND a.offering_id=i.offering_id
+      ), reserved AS (
+        SELECT offering_id,sum(capacity)::int capacity FROM registration.capacity_pools
+        WHERE status='PUBLISHED' GROUP BY offering_id
+      ) SELECT EXISTS(SELECT 1 FROM target t
+        LEFT JOIN registration.capacity_pools p ON p.id=t.pool_id AND p.status='PUBLISHED'
+        LEFT JOIN reserved rs ON rs.offering_id=t.id
+        WHERE CASE WHEN t.pool_id IS NULL THEN
+          (SELECT count(*) FROM registration.confirmed_item_allocations c
+            WHERE c.offering_id=t.id AND c.pool_id IS NULL)>=t.capacity-COALESCE(rs.capacity,0)
+        ELSE p.id IS NULL OR (SELECT count(*) FROM registration.confirmed_item_allocations c
+            WHERE c.offering_id=t.id AND c.pool_id=t.pool_id)>=p.capacity END) blocked`, [requestId]);
+    if (violations[0]?.blocked === true) {
       throw new ConflictException('One or more offerings have no remaining confirmed capacity');
+    }
+  }
+
+  private async insertConfirmedAllocations(manager: { query: DataSource['query'] },
+    requestId: string): Promise<void> {
+    try {
+      await manager.query(`INSERT INTO registration.confirmed_item_allocations
+        (request_id,offering_id,student_id,pool_id)
+        SELECT i.request_id,i.offering_id,r.student_id,a.pool_id FROM registration.request_items i
+        JOIN registration.requests r ON r.id=i.request_id
+        LEFT JOIN registration.request_capacity_assignments a
+          ON a.request_id=i.request_id AND a.offering_id=i.offering_id
+        WHERE i.request_id=$1`, [requestId]);
+    } catch (error) {
+      if (isDatabaseConstraint(error)) {
+        throw new ConflictException('Student already has a confirmed allocation for an offering');
+      }
+      throw error;
     }
   }
 

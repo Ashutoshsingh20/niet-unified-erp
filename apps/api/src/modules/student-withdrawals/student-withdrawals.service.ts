@@ -192,6 +192,10 @@ export class StudentWithdrawalsService {
         WHERE request_id=$1 AND status='WAITING'`, [registration.id]);
       await manager.query(`UPDATE registration.requests SET status='CANCELLED',version=version+1,
         decision_reason=$2 WHERE id=$1`, [registration.id, input.reason]);
+      if (registration.status === 'CONFIRMED') {
+        await manager.query(`DELETE FROM registration.confirmed_item_allocations
+          WHERE request_id=$1`, [registration.id]);
+      }
     }
     const enrolments = await manager.query<readonly { id: string; status: string }[]>(`SELECT id,status
       FROM student.programme_enrolments WHERE student_id=$1 AND status IN ('PROVISIONAL','ACTIVE')

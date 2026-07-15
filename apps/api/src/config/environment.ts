@@ -96,6 +96,12 @@ const environmentSchema = z.object({
     .transform((value) => value === 'true'),
   WAITLIST_EXPIRY_ENFORCEMENT_ENABLED: z.enum(['true', 'false']).default('false')
     .transform((value) => value === 'true'),
+  REGISTRATION_RESERVED_CAPACITY_PUBLICATION_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
+  REGISTRATION_CAPACITY_ENTITLEMENT_APPROVAL_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
+  REGISTRATION_RESERVED_CAPACITY_ENFORCEMENT_ENABLED: z.enum(['true', 'false']).default('false')
+    .transform((value) => value === 'true'),
   STUDENT_WITHDRAWAL_ENABLED: z.enum(['true', 'false']).default('false')
     .transform((value) => value === 'true'),
 });

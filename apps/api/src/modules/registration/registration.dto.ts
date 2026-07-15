@@ -43,6 +43,12 @@ export class RegistrationEligibilitySnapshotDto {
   @IsObject() evaluationTrace!: Record<string, unknown>;
 }
 
+export class RegistrationCapacityAssignmentDto {
+  @IsUUID() offeringId!: string;
+  @IsUUID() poolId!: string;
+  @IsUUID() entitlementId!: string;
+}
+
 export class SubmitRegistrationDto {
   @IsUUID() studentId!: string;
   @IsUUID() periodId!: string;
@@ -55,6 +61,9 @@ export class SubmitRegistrationDto {
   eligibilitySnapshot?: RegistrationEligibilitySnapshotDto;
   @IsOptional() @IsArray() @ArrayMaxSize(4) @ArrayUnique() @IsUUID('4', { each: true })
   overrideAuthorizationIds?: string[];
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @ValidateNested({ each: true })
+  @Type(() => RegistrationCapacityAssignmentDto)
+  capacityAssignments?: RegistrationCapacityAssignmentDto[];
 }
 
 export class WaitlistTermsDto {
