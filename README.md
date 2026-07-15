@@ -4,7 +4,11 @@ Architecture and delivery planning for a production-grade, on-premise enterprise
 
 ## Current status
 
-The project is currently in **Phase 0: Discovery and Architecture**. No application implementation has started.
+Phase 0 architecture is documented and implementation is progressing through the governed Phase 1
+and Phase 2 platform/domain foundations. Authentication, scoped authorization, workflows, audit,
+outbox processing, student/curriculum/registration foundations, finance/admissions foundations, and
+on-premise deployment assets are present. Policy-gated operations remain disabled until NIET owners
+approve the corresponding institutional rules; see the delivery plan for the exact acceptance gaps.
 
 The proposed system architecture, security model, deployment topology, migration strategy, institutional decision gates, and phased delivery plan are documented in [PHASE_0_ARCHITECTURE.md](./PHASE_0_ARCHITECTURE.md).
 
@@ -14,7 +18,8 @@ Institutional data, authentication, files, logs, backups, and business services 
 
 ## Next step
 
-NIET stakeholders must review and approve the Phase 0 architecture and resolve the documented policy and data-governance decisions before application development begins.
+Continue closing the documented Phase 2 acceptance gaps while NIET stakeholders resolve the policy
+and data-governance decisions that cannot be inferred safely.
 
 ## Development status
 
@@ -36,3 +41,6 @@ DATABASE_URL='postgresql://user:password@host:5432/database' npm run db:migrate
 ```
 
 Never point development or automated tests at a production database.
+
+For local sign-in and account-registration setup, follow
+[`docs/runbooks/web-identity-and-bff.md`](./docs/runbooks/web-identity-and-bff.md#local-review-bootstrap).

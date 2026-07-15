@@ -19,6 +19,34 @@ Keycloak authenticates the user. The NestJS API remains authoritative for capabi
 
 Secrets must come from NIET's on-premise secret store. Never place production values in environment examples, images, logs, CI variables visible to untrusted jobs, or source control.
 
+## Local review bootstrap
+
+Starting Keycloak alone does not create the `niet` realm or either OIDC client. For a local,
+loopback-only review environment, start Keycloak with a bootstrap administrator and then run:
+
+```bash
+KEYCLOAK_ADMIN_USERNAME='local-admin' \
+KEYCLOAK_ADMIN_PASSWORD='read-from-your-local-secret-store' \
+OIDC_CLIENT_SECRET='the-same-secret-configured-for-the-web-process' \
+OIDC_SELF_REGISTRATION_ENABLED='true' \
+npm run identity:bootstrap:local
+```
+
+The command is idempotent: it creates or reconciles the local realm, the confidential web client,
+the API audience client, the API audience mapper, exact callback/origin allowlists, and the realm's
+self-registration setting. It refuses production mode and non-loopback Keycloak/web origins. The
+web process must use the same `OIDC_CLIENT_SECRET` and `OIDC_SELF_REGISTRATION_ENABLED` values.
+
+Confirm discovery before starting the web process:
+
+```bash
+curl --fail http://127.0.0.1:8080/realms/niet/.well-known/openid-configuration
+```
+
+Self-registered identities deliberately receive no ERP role or institutional scope. Use the
+controlled access-governance bootstrap/provisioning path for a review identity that needs live ERP
+data; never grant roles as a side effect of registration.
+
 ## Keycloak client requirements
 
 - Authorization code flow only; implicit and password grants disabled.

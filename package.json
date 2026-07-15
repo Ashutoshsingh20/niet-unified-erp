@@ -20,6 +20,8 @@
     "dev:api": "npm run start:dev --workspace @niet/api",
     "db:migrate": "node scripts/migrate.mjs",
     "db:verify": "node scripts/verify-database.mjs",
+    "identity:bootstrap:local": "node scripts/bootstrap-local-identity.mjs",
+    "identity:bootstrap:local:check": "node --check scripts/bootstrap-local-identity.mjs",
     "access:bootstrap": "node scripts/bootstrap-access.mjs",
     "access:verify": "node scripts/verify-access.mjs",
     "workflow:verify": "node scripts/verify-workflow.mjs",
@@ -61,6 +63,6 @@
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "verify": "npm run typecheck && npm run lint && npm test && npm run build"
+    "verify": "npm run identity:bootstrap:local:check && npm run typecheck && npm run lint && npm test && npm run build"
   }
 }
